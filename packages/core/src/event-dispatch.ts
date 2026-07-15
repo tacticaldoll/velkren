@@ -26,6 +26,15 @@ export interface EventDispatchOptions {
   readonly raw?: unknown;
 }
 
+export type EventReaction = (event: EventInstance) => unknown;
+
+const eventRelayDepth = new WeakMap<EventInstance, number>();
+
+export function getEventRelayDepth(event: EventInstance): number {
+  event.assertActive("read its relay depth");
+  return eventRelayDepth.get(event) ?? 0;
+}
+
 export class EventDispatchError extends Error {
   readonly transcript: EventTraceTranscript;
   readonly traceFailures: readonly unknown[];
@@ -50,19 +59,24 @@ export class EventDispatchError extends Error {
 export class EventDispatcher {
   readonly #trace = new EventTraceBuilder();
   readonly #sink: EventTraceSink;
+  readonly #reaction: EventReaction;
 
   constructor(
     readonly factory: EventFactoryKernel,
     readonly resolve: EventClassResolver,
     sink?: EventTraceSink,
+    reaction: EventReaction = () => undefined,
   ) {
     this.#sink = sink ?? noopEventTraceSink;
+    this.#reaction = reaction;
   }
 
   async dispatch(
     classId: CanonicalClassId,
     payload: unknown,
     options: EventDispatchOptions = {},
+    reaction: EventReaction = this.#reaction,
+    relayDepth = 0,
   ): Promise<EventTraceTranscript> {
     const eventId = this.factory.allocateDiagnosticId();
     const records: EventTraceRecord[] = [];
@@ -84,6 +98,7 @@ export class EventDispatcher {
         eventId,
       );
       snapshotText = getEventSnapshotText(instance);
+      eventRelayDepth.set(instance, relayDepth);
       await this.#emit(
         records,
         traceFailures,
@@ -95,6 +110,7 @@ export class EventDispatcher {
         }),
       );
       if (traceFailures.length > 0) throw traceFailures[0];
+      await reaction(instance);
       setEventPhase(instance, EventPhase.Completed);
       await this.#emit(
         records,

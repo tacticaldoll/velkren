@@ -44,6 +44,39 @@ export {
   type EventDispatchOptions,
 } from "./event-dispatch.js";
 export {
+  EventChannel,
+  EventEndpointCreationError,
+  InvalidEventEndpointError,
+  ListenerLifecyclePhase,
+  type EventEndpoint,
+  type EventEndpointPair,
+  type ListenerLifecycleObserver,
+  type ListenerLifecycleRecord,
+  type PrivateEventEndpoint,
+} from "./event-endpoint.js";
+export {
+  createListenerClass,
+  createListenerMiddleware,
+  isListenerClass,
+  ListenerDefinitionError,
+  ListenerExecutionError,
+  ListenerReturnContractError,
+  type ListenerAfter,
+  type ListenerBefore,
+  type ListenerCallback,
+  type ListenerClass,
+  type ListenerContext,
+  type ListenerInstance,
+  type ListenerMiddleware,
+  type ListenerMiddlewareOutcome,
+  type ListenerResult,
+} from "./listener-class.js";
+export {
+  ListenerCreationError,
+  type ListenerClassRegistration,
+  type ListenerFactory,
+} from "./listener-runtime.js";
+export {
   type EventTraceOutcome,
   type EventTraceRecord,
   type EventTraceSink,
@@ -54,6 +87,8 @@ export {
   createEventRuntime,
   DuplicateEventRuntimeError,
   InvalidEventLoaderDefinitionError,
+  RelayDepthError,
+  type EventRelayMapper,
   type EventLoaderBehavior,
   type EventLoaderDefinition,
   type EventLoaderRegistration,

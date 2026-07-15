@@ -99,6 +99,17 @@ export class ListenerRegistry {
     return this.#wrap(this.#registry.register(this.#adapt(listenerClass)));
   }
 
+  async registerBatch(
+    listenerClasses: Iterable<ListenerClass>,
+  ): Promise<readonly ListenerClassRegistration[]> {
+    const registrations = await this.#registry.registerBatch(
+      [...listenerClasses].map((listenerClass) => this.#adapt(listenerClass)),
+    );
+    return Object.freeze(
+      registrations.map((registration) => this.#wrap(registration)),
+    );
+  }
+
   async replace(
     listenerClass: ListenerClass,
   ): Promise<ListenerClassRegistration> {
@@ -122,6 +133,24 @@ export class ListenerRegistry {
 
   releaseDependent(registration: Registration<ListenerClass>): void {
     this.#registry.releaseDependent(registration);
+  }
+
+  dependentCount(wrapper: ListenerClassRegistration): number {
+    return this.#registry.dependentCount(this.#unwrap(wrapper));
+  }
+
+  acquireAdmissionLease(
+    wrappers: Iterable<ListenerClassRegistration>,
+  ): () => void {
+    return this.#registry.acquireAdmissionLease(
+      [...wrappers].map((wrapper) => this.#unwrap(wrapper)),
+    );
+  }
+
+  withdrawExact(wrappers: Iterable<ListenerClassRegistration>): Promise<void> {
+    return this.#registry.withdrawExact(
+      [...wrappers].map((wrapper) => this.#unwrap(wrapper)),
+    );
   }
 
   #adapt(listenerClass: ListenerClass): ClassDefinition<ListenerClass> {

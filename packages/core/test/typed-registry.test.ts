@@ -6,6 +6,7 @@ import {
   DuplicateRegistrationError,
   MissingRegistrationError,
   RegistrationConflictError,
+  RegistrationAdmissionError,
   RegistrationDependencyError,
   RegistrationKindError,
 } from "../src/registration-errors.js";
@@ -146,5 +147,26 @@ describe("typed definitions and registrations", () => {
       MissingRegistrationError,
     );
     expect(definition.id).toBe("alpha/sample.item");
+  });
+
+  it("leases dependent admission and synchronously withdraws exact batches", async () => {
+    const registry = new TypedRegistry(
+      createRuntime({ id: "test" }),
+      alpha.kind,
+    );
+    const first = registry.register(alpha.define("first", () => undefined));
+    const second = registry.register(alpha.define("second", () => undefined));
+    const releaseLease = registry.acquireAdmissionLease([first, second]);
+
+    expect(() => registry.retain(first)).toThrow(RegistrationAdmissionError);
+    expect(registry.dependentCount(first)).toBe(0);
+    const withdrawal = registry.withdrawExact([first, second]);
+    expect(registry.resolve(first.classId)).toBeUndefined();
+    expect(registry.resolve(second.classId)).toBeUndefined();
+    await withdrawal;
+    releaseLease();
+    releaseLease();
+    expect(first.status).toBe("released");
+    expect(second.status).toBe("released");
   });
 });

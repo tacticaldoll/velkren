@@ -67,6 +67,15 @@ import {
 import { TypedNamespaceResolver } from "./typed-namespace-resolver.js";
 import { TypedRegistry, type Registration } from "./typed-registry.js";
 import { cloneJsonFromText, type JsonObject } from "./strict-json.js";
+import {
+  type PluginClass,
+  type PluginLifecycleObserver,
+} from "./plugin-class.js";
+import {
+  PluginDomain,
+  type PluginEventTransactionPort,
+  type PluginInstallation,
+} from "./plugin-runtime.js";
 
 const eventDefinitions = createDefinitionKind<EventClass>("event");
 const eventLoaders = createLoaderKind<EventClass>("event");
@@ -105,6 +114,7 @@ export interface EventLoaderRegistration extends RuntimeOwned {
 export interface EventRuntimeOptions {
   readonly traceSink?: EventTraceSink;
   readonly lifecycleObserver?: ListenerLifecycleObserver;
+  readonly pluginLifecycleObserver?: PluginLifecycleObserver;
 }
 
 export class DuplicateEventRuntimeError extends Error {
@@ -196,6 +206,13 @@ export interface EventRuntime {
     definition: EventLoaderDefinition,
   ): Promise<EventLoaderRegistration>;
   unregisterLoader(namespace?: string): Promise<void>;
+  definePlugin(
+    slug: string,
+    contribute: PluginClass["contribute"],
+  ): PluginClass;
+  installPlugin(pluginClass: PluginClass): Promise<PluginInstallation>;
+  uninstallPlugin(installation: PluginInstallation): Promise<void>;
+  cascadeUninstallPlugin(installation: PluginInstallation): Promise<void>;
 }
 
 class DefaultEventRuntime implements EventRuntime {
@@ -208,6 +225,7 @@ class DefaultEventRuntime implements EventRuntime {
   readonly #resolver: TypedNamespaceResolver<EventClass>;
   readonly #dispatcher: EventDispatcher;
   readonly #listenerRegistry: ListenerRegistry;
+  readonly #pluginDomain: PluginDomain;
   readonly #lifecycleObserver: ListenerLifecycleObserver | undefined;
   #nextRelaySequence = 0;
   readonly #classDefinitions = new WeakMap<
@@ -244,6 +262,34 @@ class DefaultEventRuntime implements EventRuntime {
       runtime,
       this.#listenerRegistry,
       options.lifecycleObserver,
+    );
+    const eventPort: PluginEventTransactionPort = {
+      resolve: (classId) => this.resolve(classId),
+      registerBatch: async (eventClasses) => {
+        const registrations = await this.#registry.registerBatch(
+          [...eventClasses].map((eventClass) => this.#adaptClass(eventClass)),
+        );
+        return Object.freeze(
+          registrations.map((registration) => this.#wrap(registration)),
+        );
+      },
+      dependentCount: (registration) =>
+        this.#registry.dependentCount(this.#unwrap(registration)),
+      acquireAdmissionLease: (registrations) =>
+        this.#registry.acquireAdmissionLease(
+          [...registrations].map((registration) => this.#unwrap(registration)),
+        ),
+      withdrawExact: (registrations) =>
+        this.#registry.withdrawExact(
+          [...registrations].map((registration) => this.#unwrap(registration)),
+        ),
+    };
+    this.#pluginDomain = new PluginDomain(
+      runtime,
+      eventPort,
+      this.#listenerRegistry,
+      this.listenerFactory,
+      options.pluginLifecycleObserver,
     );
     this.defaultEndpoint = createDefaultEventEndpoint(runtime).endpoint;
     const store: EventRegistrationStore = {
@@ -453,6 +499,25 @@ class DefaultEventRuntime implements EventRuntime {
 
   async unregisterLoader(namespace?: string): Promise<void> {
     await this.#loaders.unregister(createLoaderNamespace(namespace));
+  }
+
+  definePlugin(
+    slug: string,
+    contribute: PluginClass["contribute"],
+  ): PluginClass {
+    return this.#pluginDomain.define(slug, contribute);
+  }
+
+  installPlugin(pluginClass: PluginClass): Promise<PluginInstallation> {
+    return this.#pluginDomain.install(pluginClass);
+  }
+
+  uninstallPlugin(installation: PluginInstallation): Promise<void> {
+    return this.#pluginDomain.uninstall(installation);
+  }
+
+  cascadeUninstallPlugin(installation: PluginInstallation): Promise<void> {
+    return this.#pluginDomain.cascadeUninstall(installation);
   }
 
   #adaptClass(eventClass: EventClass): ClassDefinition<EventClass> {

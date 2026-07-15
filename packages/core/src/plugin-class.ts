@@ -91,6 +91,22 @@ export class PluginInstallationError extends Error {
   }
 }
 
+export class DuplicatePluginInstallationError extends Error {
+  constructor(readonly pluginClassId: CanonicalClassId) {
+    super(`PluginClass ${JSON.stringify(pluginClassId)} is already installed.`);
+    this.name = "DuplicatePluginInstallationError";
+  }
+}
+
+export class PluginUninstallError extends Error {
+  readonly failures: readonly unknown[];
+  constructor(failures: readonly unknown[]) {
+    super("Plugin uninstall cleanup failed.");
+    this.name = "PluginUninstallError";
+    this.failures = Object.freeze([...failures]);
+  }
+}
+
 export class PluginUninstallDependencyError extends Error {
   constructor(
     readonly dependencies: readonly Readonly<{

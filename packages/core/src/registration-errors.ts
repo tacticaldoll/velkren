@@ -49,6 +49,25 @@ export class RegistrationConflictError extends RegistrationError {
   }
 }
 
+export class RegistrationBatchError extends RegistrationError {
+  readonly cleanupFailures: readonly unknown[];
+
+  constructor(cause: unknown, cleanupFailures: readonly unknown[]) {
+    super("Registration batch transaction failed.", { cause });
+    this.name = "RegistrationBatchError";
+    this.cleanupFailures = Object.freeze([...cleanupFailures]);
+  }
+}
+
+export class RegistrationBatchConflictError extends RegistrationError {
+  constructor() {
+    super(
+      "Registry revision changed during registration batch initialization.",
+    );
+    this.name = "RegistrationBatchConflictError";
+  }
+}
+
 export class ManagedCreationError extends Error {
   readonly cleanupFailures: readonly unknown[];
 

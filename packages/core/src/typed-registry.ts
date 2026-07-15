@@ -7,15 +7,20 @@ import {
 } from "./identity.js";
 import {
   createManagedResource,
+  type ManagedCleanup,
+  type ManagedObjectController,
   type ManagedObject,
 } from "./managed-lifecycle.js";
 import {
   DuplicateRegistrationError,
   MissingRegistrationError,
+  RegistrationBatchError,
+  RegistrationBatchConflictError,
   RegistrationConflictError,
   RegistrationDependencyError,
   RegistrationKindError,
 } from "./registration-errors.js";
+import { ManagedReleaseError } from "./runtime-errors.js";
 import type { Runtime } from "./runtime.js";
 
 export interface Registration<
@@ -32,6 +37,12 @@ interface RegistrationState {
 }
 
 const registrationState = new WeakMap<object, RegistrationState>();
+
+export type RegistrationInitializer<Value> = (context: {
+  readonly definition: ClassDefinition<Value>;
+  readonly registration: Registration<Value>;
+  readonly addCleanup: (cleanup: ManagedCleanup) => void;
+}) => void;
 
 export class TypedRegistry<Value = unknown> {
   readonly #active = new Map<CanonicalClassId, Registration<Value>>();
@@ -51,9 +62,79 @@ export class TypedRegistry<Value = unknown> {
     if (this.#active.has(definition.id)) {
       throw new DuplicateRegistrationError(definition.id);
     }
-    const registration = this.#createRegistration(definition, undefined);
+    const revision = this.#nextRevision + 1;
+    const { registration } = this.#createRegistration(
+      definition,
+      undefined,
+      revision,
+    );
     this.#active.set(definition.id, registration);
+    this.#nextRevision = revision;
     return registration;
+  }
+
+  async registerBatch(
+    definitions: Iterable<ClassDefinition<Value>>,
+    initialize?: RegistrationInitializer<Value>,
+  ): Promise<readonly Registration<Value>[]> {
+    const staged = [...definitions];
+    const startingRevision = this.#nextRevision;
+    const stagedIds = new Set<CanonicalClassId>();
+    for (const definition of staged) {
+      this.#assertKind(definition);
+      if (stagedIds.has(definition.id) || this.#active.has(definition.id)) {
+        throw new DuplicateRegistrationError(definition.id);
+      }
+      stagedIds.add(definition.id);
+    }
+
+    const created: Array<{
+      controller: ManagedObjectController<QualifiedRegistrationId>;
+      registration: Registration<Value>;
+    }> = [];
+    try {
+      for (const [index, definition] of staged.entries()) {
+        const initialized = this.#createRegistration(
+          definition,
+          undefined,
+          startingRevision + index + 1,
+        );
+        created.push(initialized);
+        initialize?.({
+          definition,
+          registration: initialized.registration,
+          addCleanup: initialized.controller.addCleanup,
+        });
+      }
+      for (const { registration } of created) {
+        if (this.#active.has(registration.classId)) {
+          throw new DuplicateRegistrationError(registration.classId);
+        }
+      }
+      if (this.#nextRevision !== startingRevision) {
+        throw new RegistrationBatchConflictError();
+      }
+    } catch (cause) {
+      const cleanupFailures: unknown[] = [];
+      for (const { registration } of created.reverse()) {
+        try {
+          await registration.release();
+        } catch (error) {
+          if (error instanceof ManagedReleaseError) {
+            cleanupFailures.push(...error.failures);
+          } else {
+            cleanupFailures.push(error);
+          }
+        }
+      }
+      throw new RegistrationBatchError(cause, cleanupFailures);
+    }
+
+    for (const { registration } of created) {
+      this.#active.set(registration.classId, registration);
+    }
+    this.#nextRevision = startingRevision + created.length;
+    return Object.freeze(created.map(({ registration }) => registration));
   }
 
   async replace(
@@ -66,8 +147,14 @@ export class TypedRegistry<Value = unknown> {
     if (this.#active.get(definition.id) !== current) {
       throw new RegistrationConflictError(definition.id);
     }
-    const replacement = this.#createRegistration(definition, current.revision);
+    const revision = this.#nextRevision + 1;
+    const { registration: replacement } = this.#createRegistration(
+      definition,
+      current.revision,
+      revision,
+    );
     this.#active.set(definition.id, replacement);
+    this.#nextRevision = revision;
     return replacement;
   }
 
@@ -102,8 +189,11 @@ export class TypedRegistry<Value = unknown> {
   #createRegistration(
     definition: ClassDefinition<Value>,
     previousRevision: number | undefined,
-  ): Registration<Value> {
-    this.#nextRevision += 1;
+    revision: number,
+  ): {
+    controller: ManagedObjectController<QualifiedRegistrationId>;
+    registration: Registration<Value>;
+  } {
     const controller = createManagedResource(
       this.runtime,
       createQualifiedRegistrationId(this.runtime.id, definition.id),
@@ -130,9 +220,9 @@ export class TypedRegistry<Value = unknown> {
         },
       },
       previousRevision: { enumerable: true, value: previousRevision },
-      revision: { enumerable: true, value: this.#nextRevision },
+      revision: { enumerable: true, value: revision },
     });
-    return registration;
+    return { controller, registration };
   }
 
   #assertKind(definition: ClassDefinition<Value>): void {

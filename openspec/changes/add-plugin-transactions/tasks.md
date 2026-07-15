@@ -1,9 +1,9 @@
 ## 1. Plugin Definitions and Staging
 
-- [ ] 1.1 Add plugin identity allocation, closed PluginLifecyclePhase values, strict-JSON lifecycle record types, staging limits, and plugin-domain errors.
-- [ ] 1.2 Implement helper-proven immutable PluginClass definitions with one awaited contribution callback and portable `plugin/<slug>` identity.
-- [ ] 1.3 Implement a frozen closed staging builder for event definitions, listener definitions, and installation-owned bindings with post-settlement invalidation.
-- [ ] 1.4 Add tests for definition provenance, mutation resistance, async contribution, builder retention, duplicate descriptors, forged definitions, bound enforcement, and zero live registry mutation during staging.
+- [x] 1.1 Add plugin identity allocation, closed PluginLifecyclePhase values, strict-JSON lifecycle record types, staging limits, and plugin-domain errors.
+- [x] 1.2 Implement helper-proven immutable PluginClass definitions with one awaited contribution callback and portable `plugin/<slug>` identity.
+- [x] 1.3 Implement a frozen closed staging builder for event definitions, listener definitions, and installation-owned bindings with post-settlement invalidation.
+- [x] 1.4 Add tests for definition provenance, mutation resistance, async contribution, builder retention, duplicate descriptors, forged definitions, bound enforcement, and zero live registry mutation during staging.
 
 ## 2. Domain Transaction Ports
 

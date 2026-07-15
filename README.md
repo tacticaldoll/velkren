@@ -1,48 +1,37 @@
-# typescript-openspec-starter
+# Velkren
 
-An opinionated starter for TypeScript projects that use OpenSpec, ADRs,
-conventional commits, and AI-agent-friendly governance from day one.
+Velkren is an explicit, composable browser-side UI runtime for stateful application interfaces.
 
-This repository is intentionally small. It provides the process skeleton for a
-new project, not product-specific architecture.
+It provides framework-independent runtime semantics for definitions, managed instances, identity, scopes, state, bindings, semantic events, templates, layout, capabilities, plugins, lifecycle, and inspection. Rendering and browser integration are supplied by adapters; applications retain ownership of definitions, policies, services, and customization.
 
-## Use
+## Status
 
-1. Create a new repository from this starter.
-2. Replace placeholder project metadata in `PROJECT.md`, `README.md`, and
-   `package.json`.
-3. Install or expose the OpenSpec CLI in your shell.
-4. Generate local agent shims for your editor or agent:
+Velkren's initial foundation is complete: runtime ownership, managed lifecycle, internal typed-registration infrastructure, the repository layout, and executable quality gates are specified and implemented. The next ready change is typed namespace loading; higher-level runtime domains remain deferred to the dependency-ordered backlog.
 
-   ```bash
-   openspec init --tools codex
-   # or: openspec init --tools claude,cursor,github-copilot
-   ```
+See:
 
-5. Start the first project-specific change with OpenSpec:
+- [`PROJECT.md`](PROJECT.md) for the project contract and terminology.
+- [`BACKLOG.md`](BACKLOG.md) for dependency-ordered future changes.
+- [`openspec/`](openspec/) for living specifications and active changes.
+- [`docs/development-flow.md`](docs/development-flow.md) for the contribution lifecycle.
 
-   ```bash
-   openspec new change "initial-project-shape"
-   ```
+## Development
 
-   This change should replace placeholders, choose the real source and package
-   layout, add the first specs, choose the package manager, and make the
-   TypeScript Definition of Done runnable.
+Velkren follows the OpenSpec lifecycle:
 
-## Included
+```text
+explore → propose → apply → sync → archive
+```
 
-- `AGENTS.md` - repository rules for AI coding agents and humans.
-- `PROJECT.md` - project-specific contract, terminology, and priorities.
-- `docs/development-flow.md` - short OpenSpec and commit checklist.
-- `docs/adr/` - architecture decision record skeleton.
-- `openspec/` - empty OpenSpec structure ready for specs and changes.
-- `package.json` and `tsconfig.json` as TypeScript project policy anchors. They
-  intentionally have no source files until the first project-specific change
-  chooses the real layout.
+Do not add feature code without an active change containing implementation tasks. The root Definition of Done is:
 
-Generated agent shims such as `.codex/` and `.claude/` are per-clone local
-files and should not be committed.
+```bash
+npm run build
+npm test
+npm run lint
+npm run format:check
+```
 
 ## License
 
-Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
+Licensed under either [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.

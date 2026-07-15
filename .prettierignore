@@ -1,0 +1,6 @@
+.agent/
+.claude/
+.codex/
+node_modules/
+packages/*/dist/
+openspec/changes/archive/

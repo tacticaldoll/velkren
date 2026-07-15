@@ -16,9 +16,11 @@ import {
   MissingRegistrationError,
   RegistrationBatchError,
   RegistrationBatchConflictError,
+  RegistrationAdmissionError,
   RegistrationConflictError,
   RegistrationDependencyError,
   RegistrationKindError,
+  RegistrationWithdrawalError,
 } from "./registration-errors.js";
 import { ManagedReleaseError } from "./runtime-errors.js";
 import type { Runtime } from "./runtime.js";
@@ -32,6 +34,7 @@ export interface Registration<
 }
 
 interface RegistrationState {
+  admissionLeases: number;
   dependents: number;
   definition: ClassDefinition<unknown> | undefined;
 }
@@ -174,7 +177,56 @@ export class TypedRegistry<Value = unknown> {
       throw new MissingRegistrationError(registration.classId);
     }
     registration.assertActive("create a dependent instance");
-    getRegistrationState(registration).dependents += 1;
+    const state = getRegistrationState(registration);
+    if (state.admissionLeases > 0) {
+      throw new RegistrationAdmissionError(registration.classId);
+    }
+    state.dependents += 1;
+  }
+
+  dependentCount(registration: Registration<Value>): number {
+    this.runtime.assertOwns(registration);
+    return getRegistrationState(registration).dependents;
+  }
+
+  acquireAdmissionLease(
+    registrations: Iterable<Registration<Value>>,
+  ): () => void {
+    const exact = [...registrations];
+    for (const registration of exact) {
+      this.runtime.assertOwns(registration);
+      if (this.#active.get(registration.classId) !== registration) {
+        throw new MissingRegistrationError(registration.classId);
+      }
+      registration.assertActive("lease dependent admission");
+    }
+    for (const registration of exact) {
+      getRegistrationState(registration).admissionLeases += 1;
+    }
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      for (const registration of exact) {
+        const state = getRegistrationState(registration);
+        state.admissionLeases -= 1;
+      }
+    };
+  }
+
+  withdrawExact(registrations: Iterable<Registration<Value>>): Promise<void> {
+    const exact = [...registrations];
+    for (const registration of exact) {
+      this.runtime.assertOwns(registration);
+      if (this.#active.get(registration.classId) !== registration) {
+        throw new MissingRegistrationError(registration.classId);
+      }
+      this.#assertNoDependents(registration);
+    }
+    for (const registration of exact) {
+      this.#active.delete(registration.classId);
+    }
+    return finalizeWithdrawal(exact);
   }
 
   releaseDependent(registration: Registration<Value>): void {
@@ -201,6 +253,7 @@ export class TypedRegistry<Value = unknown> {
     );
     const registration = controller.object as Registration<Value>;
     registrationState.set(registration, {
+      admissionLeases: 0,
       definition,
       dependents: 0,
     });
@@ -253,4 +306,20 @@ function getRegistrationState(registration: Registration): RegistrationState {
     throw new TypeError("Registration was not created by Velkren.");
   }
   return state;
+}
+
+async function finalizeWithdrawal(
+  registrations: readonly Registration[],
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const registration of [...registrations].reverse()) {
+    try {
+      await registration.release();
+    } catch (error) {
+      if (error instanceof ManagedReleaseError)
+        failures.push(...error.failures);
+      else failures.push(error);
+    }
+  }
+  if (failures.length > 0) throw new RegistrationWithdrawalError(failures);
 }

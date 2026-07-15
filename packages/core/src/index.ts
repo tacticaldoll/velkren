@@ -101,3 +101,21 @@ export {
   type JsonPrimitive,
   type JsonValue,
 } from "./strict-json.js";
+export {
+  createPluginClass,
+  isPluginClass,
+  DuplicatePluginInstallationError,
+  PluginDefinitionError,
+  PluginInstallationError,
+  PluginLifecyclePhase,
+  PluginOperationConflictError,
+  PluginStagingError,
+  PluginUninstallDependencyError,
+  PluginUninstallError,
+  type PluginClass,
+  type PluginContribution,
+  type PluginContributionBuilder,
+  type PluginLifecycleObserver,
+  type PluginLifecycleRecord,
+} from "./plugin-class.js";
+export { type PluginInstallation } from "./plugin-runtime.js";

@@ -42,7 +42,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-plugin-transactions
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add PluginClass and PluginInstallation lifecycle, staged multi-registry contributions, atomic commit and rollback, protected uninstall, and explicit cascade.
 - **Dependencies**: `add-managed-listeners`
 - **Why next**: Plugins must not expose partially installed event, listener, or later component capabilities.

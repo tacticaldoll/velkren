@@ -40,6 +40,25 @@ export class RegistrationDependencyError extends RegistrationError {
   }
 }
 
+export class RegistrationAdmissionError extends RegistrationError {
+  constructor(readonly classId: CanonicalClassId) {
+    super(
+      `Registration ${JSON.stringify(classId)} is not accepting new dependents.`,
+    );
+    this.name = "RegistrationAdmissionError";
+  }
+}
+
+export class RegistrationWithdrawalError extends RegistrationError {
+  readonly failures: readonly unknown[];
+
+  constructor(failures: readonly unknown[]) {
+    super("Registration withdrawal cleanup failed.");
+    this.name = "RegistrationWithdrawalError";
+    this.failures = Object.freeze([...failures]);
+  }
+}
+
 export class RegistrationConflictError extends RegistrationError {
   constructor(readonly classId: CanonicalClassId) {
     super(

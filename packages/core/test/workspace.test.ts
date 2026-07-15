@@ -19,6 +19,10 @@ describe("@velkren/core workspace", () => {
     expect(core).toHaveProperty("ListenerExecutionError");
     expect(core).toHaveProperty("ListenerCreationError");
     expect(core).toHaveProperty("RelayDepthError");
+    expect(core).toHaveProperty("createPluginClass");
+    expect(core).toHaveProperty("PluginLifecyclePhase");
+    expect(core).toHaveProperty("PluginInstallationError");
+    expect(core).toHaveProperty("PluginUninstallDependencyError");
   });
 
   it("does not expose internal registration or identity constructors", () => {
@@ -48,5 +52,10 @@ describe("@velkren/core workspace", () => {
     expect(core).not.toHaveProperty("installEndpointListener");
     expect(core).not.toHaveProperty("getEventRelayDepth");
     expect(core).not.toHaveProperty("createEventEndpoint");
+    expect(core).not.toHaveProperty("PluginDomain");
+    expect(core).not.toHaveProperty("stagePluginContributions");
+    expect(core).not.toHaveProperty("PluginStagingLimits");
+    expect(core).not.toHaveProperty("allocatePluginInstallationId");
+    expect(core).not.toHaveProperty("RegistrationAdmissionError");
   });
 });

@@ -24,7 +24,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-semantic-events
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add registered EventClass definitions, closed-schema immutable JSON snapshots, EventFactory creation, EventInstance lifecycle, cleanup, and safe trace records.
 - **Dependencies**: `add-typed-namespace-loading`
 - **Why next**: Semantic events are the first domain that exercises registered definitions, managed factories, snapshots, and short-lived cleanup end to end.

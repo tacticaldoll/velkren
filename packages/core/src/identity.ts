@@ -86,6 +86,24 @@ export function createCanonicalClassId(
   return `${validKind}/${validSlug}` as CanonicalClassId;
 }
 
+export function parseCanonicalClassId(value: string | CanonicalClassId): {
+  readonly kind: ClassKind;
+  readonly localSlug: LocalClassSlug;
+} {
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator !== value.lastIndexOf("/")) {
+    throw new IdentityValidationError(
+      "canonical class ID",
+      value,
+      "<class-kind>/<local-class-slug>",
+    );
+  }
+  return Object.freeze({
+    kind: createClassKind(value.slice(0, separator)),
+    localSlug: createLocalClassSlug(value.slice(separator + 1)),
+  });
+}
+
 export function createQualifiedRegistrationId(
   runtimeId: string | RuntimeId,
   classId: CanonicalClassId,

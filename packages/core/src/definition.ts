@@ -29,6 +29,8 @@ export interface DefinitionKind<Value = unknown> {
   define(slug: string, create: DefinitionCreate<Value>): ClassDefinition<Value>;
 }
 
+const classDefinitions = new WeakSet<object>();
+
 export function createDefinitionKind<Value = unknown>(
   kind: string,
 ): DefinitionKind<Value> {
@@ -37,12 +39,23 @@ export function createDefinitionKind<Value = unknown>(
     kind: validKind,
     define(slug: string, create: DefinitionCreate<Value>) {
       const localSlug = createLocalClassSlug(slug);
-      return Object.freeze({
+      const definition = {
         kind: validKind,
         localSlug,
         id: createCanonicalClassId(validKind, localSlug),
         create,
-      });
+      };
+      classDefinitions.add(definition);
+      return Object.freeze(definition);
     },
   });
+}
+
+export function isClassDefinition(value: unknown): value is ClassDefinition {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    classDefinitions.has(value) &&
+    Object.isFrozen(value)
+  );
 }

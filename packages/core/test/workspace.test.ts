@@ -16,5 +16,9 @@ describe("@velkren/core workspace", () => {
     expect(core).not.toHaveProperty("TypedRegistry");
     expect(core).not.toHaveProperty("ManagedFactory");
     expect(core).not.toHaveProperty("RegistrationError");
+    expect(core).not.toHaveProperty("createLoaderKind");
+    expect(core).not.toHaveProperty("TypedLoaderRegistry");
+    expect(core).not.toHaveProperty("TypedNamespaceResolver");
+    expect(core).not.toHaveProperty("NoMatchingLoaderError");
   });
 });

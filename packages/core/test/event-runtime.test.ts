@@ -26,6 +26,8 @@ describe("public semantic EventRuntime facade", () => {
 
     expect(Object.isFrozen(events)).toBe(true);
     expect(Object.isFrozen(events.factory)).toBe(true);
+    expect(Object.isFrozen(events.listenerFactory)).toBe(true);
+    expect(Object.isFrozen(events.defaultEndpoint)).toBe(true);
     expect(events.factory).not.toHaveProperty("allocateDiagnosticId");
     expect(registration.eventClass).toBe(saved);
     expect(runtime.owns(registration)).toBe(true);

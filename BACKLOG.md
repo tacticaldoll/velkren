@@ -24,7 +24,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-semantic-events
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add registered EventClass definitions, closed-schema immutable JSON snapshots, EventFactory creation, EventInstance lifecycle, cleanup, and safe trace records.
 - **Dependencies**: `add-typed-namespace-loading`
 - **Why next**: Semantic events are the first domain that exercises registered definitions, managed factories, snapshots, and short-lived cleanup end to end.
@@ -33,7 +33,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-managed-listeners
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add EventEndpoints, ListenerClass and ListenerInstance, public/private channels, onion middleware, explicit `false` short-circuiting, exceptions, and relayers as managed listeners.
 - **Dependencies**: `add-semantic-events`
 - **Why next**: Listener ownership and middleware ordering must be stable before plugins or component coordination use events.
@@ -42,7 +42,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-plugin-transactions
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add PluginClass and PluginInstallation lifecycle, staged multi-registry contributions, atomic commit and rollback, protected uninstall, and explicit cascade.
 - **Dependencies**: `add-managed-listeners`
 - **Why next**: Plugins must not expose partially installed event, listener, or later component capabilities.

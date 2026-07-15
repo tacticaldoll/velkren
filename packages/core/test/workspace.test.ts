@@ -12,6 +12,13 @@ describe("@velkren/core workspace", () => {
     expect(core).toHaveProperty("optionalEventField");
     expect(core).toHaveProperty("EventPhase");
     expect(core).toHaveProperty("EventDispatchError");
+    expect(core).toHaveProperty("EventChannel");
+    expect(core).toHaveProperty("ListenerLifecyclePhase");
+    expect(core).toHaveProperty("createListenerClass");
+    expect(core).toHaveProperty("createListenerMiddleware");
+    expect(core).toHaveProperty("ListenerExecutionError");
+    expect(core).toHaveProperty("ListenerCreationError");
+    expect(core).toHaveProperty("RelayDepthError");
   });
 
   it("does not expose internal registration or identity constructors", () => {
@@ -33,9 +40,13 @@ describe("@velkren/core workspace", () => {
     expect(core).not.toHaveProperty("setEventPhase");
     expect(core).not.toHaveProperty("getEventSnapshotText");
     expect(core).not.toHaveProperty("createJsonSnapshot");
-    expect(core).not.toHaveProperty("ListenerClass");
-    expect(core).not.toHaveProperty("EventEndpoint");
-    expect(core).not.toHaveProperty("middleware");
-    expect(core).not.toHaveProperty("relayer");
+    expect(core).not.toHaveProperty("ListenerRegistry");
+    expect(core).not.toHaveProperty("createListenerFactory");
+    expect(core).not.toHaveProperty("reactEndpoint");
+    expect(core).not.toHaveProperty("resolveEndpointAuthority");
+    expect(core).not.toHaveProperty("snapshotEndpointListeners");
+    expect(core).not.toHaveProperty("installEndpointListener");
+    expect(core).not.toHaveProperty("getEventRelayDepth");
+    expect(core).not.toHaveProperty("createEventEndpoint");
   });
 });

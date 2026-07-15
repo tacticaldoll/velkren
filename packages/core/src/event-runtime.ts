@@ -6,11 +6,25 @@ import {
   type EventSchema,
 } from "./event-class.js";
 import {
+  EventChannel,
+  assertEventEndpoint,
+  assertPrivateEventEndpoint,
+  createDefaultEventEndpoint,
+  createEventEndpoint,
+  resolveEndpointAuthority,
+  type EventEndpoint,
+  type EventEndpointPair,
+  type ListenerLifecycleObserver,
+  type PrivateEventEndpoint,
+} from "./event-endpoint.js";
+import {
   EventDispatcher,
+  getEventRelayDepth,
   type EventDispatchOptions,
 } from "./event-dispatch.js";
 import {
   EventFactoryKernel,
+  getEventSnapshotText,
   type EventClassRegistration,
   type EventCreateOptions,
   type EventInstance,
@@ -20,6 +34,20 @@ import {
 import type { EventTraceSink, EventTraceTranscript } from "./event-trace.js";
 import type { CanonicalClassId } from "./identity.js";
 import type { ManagedStatus } from "./managed-lifecycle.js";
+import {
+  createListenerClass,
+  type ListenerCallback,
+  type ListenerClass,
+  type ListenerInstance,
+  type ListenerMiddleware,
+} from "./listener-class.js";
+import {
+  ListenerRegistry,
+  createListenerFactory,
+  reactEndpoint,
+  type ListenerClassRegistration,
+  type ListenerFactory,
+} from "./listener-runtime.js";
 import {
   createLoaderNamespace,
   isRootNamespace,
@@ -38,11 +66,25 @@ import {
 } from "./typed-loader-registry.js";
 import { TypedNamespaceResolver } from "./typed-namespace-resolver.js";
 import { TypedRegistry, type Registration } from "./typed-registry.js";
+import { cloneJsonFromText, type JsonObject } from "./strict-json.js";
 
 const eventDefinitions = createDefinitionKind<EventClass>("event");
 const eventLoaders = createLoaderKind<EventClass>("event");
 const eventRuntimes = new WeakMap<Runtime, EventRuntime>();
 const eventLoaderDefinitions = new WeakSet<object>();
+const MAX_RELAY_DEPTH = 32;
+
+export type EventRelayMapper = (snapshot: JsonObject) => unknown;
+
+export class RelayDepthError extends Error {
+  constructor(
+    readonly depth: number,
+    readonly limit: number,
+  ) {
+    super(`Semantic relay depth ${depth} exceeds limit ${limit}.`);
+    this.name = "RelayDepthError";
+  }
+}
 
 export type EventLoaderBehavior = (
   requestedClassId: CanonicalClassId,
@@ -62,6 +104,7 @@ export interface EventLoaderRegistration extends RuntimeOwned {
 
 export interface EventRuntimeOptions {
   readonly traceSink?: EventTraceSink;
+  readonly lifecycleObserver?: ListenerLifecycleObserver;
 }
 
 export class DuplicateEventRuntimeError extends Error {
@@ -92,6 +135,8 @@ export function createEventLoader(
 export interface EventRuntime {
   readonly runtime: Runtime;
   readonly factory: EventFactory;
+  readonly defaultEndpoint: EventEndpoint;
+  readonly listenerFactory: ListenerFactory;
   define(slug: string, schema: EventSchema): EventClass;
   register(eventClass: EventClass): EventClassRegistration;
   replace(eventClass: EventClass): Promise<EventClassRegistration>;
@@ -108,6 +153,44 @@ export interface EventRuntime {
     payload: unknown,
     options?: EventDispatchOptions,
   ): Promise<EventTraceTranscript>;
+  createEndpoint(): Promise<EventEndpointPair>;
+  publish(
+    endpoint: EventEndpoint,
+    classId: CanonicalClassId,
+    payload: unknown,
+    options?: EventDispatchOptions,
+  ): Promise<EventTraceTranscript>;
+  publishPrivate(
+    endpoint: PrivateEventEndpoint,
+    classId: CanonicalClassId,
+    payload: unknown,
+    options?: EventDispatchOptions,
+  ): Promise<EventTraceTranscript>;
+  defineListener(
+    slug: string,
+    eventClass: EventClass,
+    callback: ListenerCallback,
+    middleware?: Iterable<ListenerMiddleware>,
+  ): ListenerClass;
+  registerListener(listenerClass: ListenerClass): ListenerClassRegistration;
+  replaceListener(
+    listenerClass: ListenerClass,
+  ): Promise<ListenerClassRegistration>;
+  unregisterListener(classId: CanonicalClassId): Promise<void>;
+  resolveListener(
+    classId: CanonicalClassId,
+  ): ListenerClassRegistration | undefined;
+  listen(
+    registration: ListenerClassRegistration,
+    authority?: EventEndpoint | PrivateEventEndpoint,
+  ): Promise<ListenerInstance>;
+  relay(
+    source: EventEndpoint | PrivateEventEndpoint,
+    sourceEventClass: EventClass,
+    target: EventEndpoint | PrivateEventEndpoint,
+    targetClassId: CanonicalClassId,
+    mapper: EventRelayMapper,
+  ): Promise<ListenerInstance>;
   registerLoader(definition: EventLoaderDefinition): EventLoaderRegistration;
   replaceLoader(
     definition: EventLoaderDefinition,
@@ -117,11 +200,16 @@ export interface EventRuntime {
 
 class DefaultEventRuntime implements EventRuntime {
   readonly factory: EventFactory;
+  readonly defaultEndpoint: EventEndpoint;
+  readonly listenerFactory: ListenerFactory;
   readonly #factoryKernel: EventFactoryKernel;
   readonly #registry: TypedRegistry<EventClass>;
   readonly #loaders: TypedLoaderRegistry<EventClass>;
   readonly #resolver: TypedNamespaceResolver<EventClass>;
   readonly #dispatcher: EventDispatcher;
+  readonly #listenerRegistry: ListenerRegistry;
+  readonly #lifecycleObserver: ListenerLifecycleObserver | undefined;
+  #nextRelaySequence = 0;
   readonly #classDefinitions = new WeakMap<
     EventClass,
     ClassDefinition<EventClass>
@@ -150,6 +238,14 @@ class DefaultEventRuntime implements EventRuntime {
     this.#registry = new TypedRegistry(runtime, eventDefinitions.kind);
     this.#loaders = new TypedLoaderRegistry(runtime, eventDefinitions.kind);
     this.#resolver = new TypedNamespaceResolver(this.#registry, this.#loaders);
+    this.#lifecycleObserver = options.lifecycleObserver;
+    this.#listenerRegistry = new ListenerRegistry(runtime);
+    this.listenerFactory = createListenerFactory(
+      runtime,
+      this.#listenerRegistry,
+      options.lifecycleObserver,
+    );
+    this.defaultEndpoint = createDefaultEventEndpoint(runtime).endpoint;
     const store: EventRegistrationStore = {
       retain: (registration) =>
         this.#registry.retain(this.#unwrap(registration)),
@@ -172,6 +268,8 @@ class DefaultEventRuntime implements EventRuntime {
       this.#factoryKernel,
       async (classId) => this.#wrap(await this.#resolver.load(classId)),
       options.traceSink,
+      (event) =>
+        reactEndpoint(this.defaultEndpoint, EventChannel.Public, event),
     );
   }
 
@@ -218,6 +316,125 @@ class DefaultEventRuntime implements EventRuntime {
     options: EventDispatchOptions = {},
   ): Promise<EventTraceTranscript> {
     return this.#dispatcher.dispatch(classId, payload, options);
+  }
+
+  createEndpoint(): Promise<EventEndpointPair> {
+    return createEventEndpoint(this.runtime, this.#lifecycleObserver);
+  }
+
+  publish(
+    endpoint: EventEndpoint,
+    classId: CanonicalClassId,
+    payload: unknown,
+    options: EventDispatchOptions = {},
+  ): Promise<EventTraceTranscript> {
+    assertEventEndpoint(this.runtime, endpoint);
+    return this.#dispatcher.dispatch(classId, payload, options, (event) =>
+      reactEndpoint(endpoint, EventChannel.Public, event),
+    );
+  }
+
+  publishPrivate(
+    authority: PrivateEventEndpoint,
+    classId: CanonicalClassId,
+    payload: unknown,
+    options: EventDispatchOptions = {},
+  ): Promise<EventTraceTranscript> {
+    const endpoint = assertPrivateEventEndpoint(this.runtime, authority);
+    return this.#dispatcher.dispatch(classId, payload, options, (event) =>
+      reactEndpoint(endpoint, EventChannel.Private, event),
+    );
+  }
+
+  defineListener(
+    slug: string,
+    eventClass: EventClass,
+    callback: ListenerCallback,
+    middleware: Iterable<ListenerMiddleware> = [],
+  ): ListenerClass {
+    return createListenerClass(slug, eventClass, callback, middleware);
+  }
+
+  registerListener(listenerClass: ListenerClass): ListenerClassRegistration {
+    return this.#listenerRegistry.register(listenerClass);
+  }
+
+  replaceListener(
+    listenerClass: ListenerClass,
+  ): Promise<ListenerClassRegistration> {
+    return this.#listenerRegistry.replace(listenerClass);
+  }
+
+  unregisterListener(classId: CanonicalClassId): Promise<void> {
+    return this.#listenerRegistry.unregister(classId);
+  }
+
+  resolveListener(
+    classId: CanonicalClassId,
+  ): ListenerClassRegistration | undefined {
+    return this.#listenerRegistry.resolve(classId);
+  }
+
+  listen(
+    registration: ListenerClassRegistration,
+    authority: EventEndpoint | PrivateEventEndpoint = this.defaultEndpoint,
+  ): Promise<ListenerInstance> {
+    return this.listenerFactory.create(registration, authority);
+  }
+
+  async relay(
+    source: EventEndpoint | PrivateEventEndpoint,
+    sourceEventClass: EventClass,
+    target: EventEndpoint | PrivateEventEndpoint,
+    targetClassId: CanonicalClassId,
+    mapper: EventRelayMapper,
+  ): Promise<ListenerInstance> {
+    const targetAuthority = resolveEndpointAuthority(this.runtime, target);
+    resolveEndpointAuthority(this.runtime, source);
+    if (!isEventClass(sourceEventClass)) {
+      throw new TypeError(
+        "Relay source EventClass lacks immutable helper provenance.",
+      );
+    }
+    if (typeof mapper !== "function") {
+      throw new TypeError("Relay mapper is not a function.");
+    }
+    this.#nextRelaySequence += 1;
+    const listenerClass = createListenerClass(
+      `relay.item-${this.#nextRelaySequence}`,
+      sourceEventClass,
+      async ({ event }) => {
+        resolveEndpointAuthority(this.runtime, target);
+        const nextDepth = getEventRelayDepth(event) + 1;
+        if (nextDepth > MAX_RELAY_DEPTH) {
+          throw new RelayDepthError(nextDepth, MAX_RELAY_DEPTH);
+        }
+        const detached = cloneJsonFromText<JsonObject>(
+          getEventSnapshotText(event),
+        );
+        const payload = await mapper(detached);
+        await this.#dispatcher.dispatch(
+          targetClassId,
+          payload,
+          {},
+          (targetEvent) =>
+            reactEndpoint(
+              targetAuthority.endpoint,
+              targetAuthority.channel,
+              targetEvent,
+            ),
+          nextDepth,
+        );
+      },
+    );
+    const registration = this.registerListener(listenerClass);
+    const relayFactory = createListenerFactory(
+      this.runtime,
+      this.#listenerRegistry,
+      this.#lifecycleObserver,
+      () => this.#listenerRegistry.unregister(listenerClass.id),
+    );
+    return relayFactory.create(registration, source);
   }
 
   registerLoader(definition: EventLoaderDefinition): EventLoaderRegistration {

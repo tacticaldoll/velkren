@@ -6,7 +6,7 @@ It provides framework-independent runtime semantics for definitions, managed ins
 
 ## Status
 
-Velkren's runtime foundation and internal typed namespace loading are specified and implemented. Semantic events are the next ready change; higher-level runtime domains remain deferred to the dependency-ordered backlog.
+Velkren's runtime foundation and internal typed namespace loading are specified and implemented. The active OpenSpec change adds semantic events; higher-level runtime domains remain deferred to the dependency-ordered backlog.
 
 See:
 

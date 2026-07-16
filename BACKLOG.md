@@ -69,7 +69,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-template-render-plans
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add registered template definitions, named slots and roots, deterministic resolution, normalized renderer-neutral render plans, and explanation APIs.
 - **Dependencies**: `add-component-runtime`
 - **Why next**: Renderer adapters need stable, inspectable render plans rather than component-specific rendering internals.
@@ -78,7 +78,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-render-root-projection
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add renderer ports, RootHandles, permanent DOM identity attributes, managed commit repair, and a fake renderer.
 - **Dependencies**: `add-template-render-plans`
 - **Why next**: DOM projection must establish observable identity without becoming the runtime's ownership source.

@@ -78,7 +78,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-render-root-projection
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add renderer ports, RootHandles, permanent DOM identity attributes, managed commit repair, and a fake renderer.
 - **Dependencies**: `add-template-render-plans`
 - **Why next**: DOM projection must establish observable identity without becoming the runtime's ownership source.

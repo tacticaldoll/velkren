@@ -1,6 +1,6 @@
 ## Why
 
-The component runtime introduced `Reference` as a *static* owner-validated capability: a handle you were given, revoked only when its target is released. That deliberately excluded the dynamic authority the constitution names as first-class coordination — granting a subset of authority to another holder, delegating it within a scope, and revoking it on its own without tearing down the target. Every downstream domain that shares authority (plugins handing components to each other, adapters holding operable handles, future cross-subtree coordination) needs that dynamic layer, and it must be built explicitly over references rather than smuggled into their introduction, so that grant/delegate/revoke are auditable and attenuation-only from the start.
+The component runtime introduced `Reference` as a _static_ owner-validated capability: a handle you were given, revoked only when its target is released. That deliberately excluded the dynamic authority the constitution names as first-class coordination — granting a subset of authority to another holder, delegating it within a scope, and revoking it on its own without tearing down the target. Every downstream domain that shares authority (plugins handing components to each other, adapters holding operable handles, future cross-subtree coordination) needs that dynamic layer, and it must be built explicitly over references rather than smuggled into their introduction, so that grant/delegate/revoke are auditable and attenuation-only from the start.
 
 ## What Changes
 

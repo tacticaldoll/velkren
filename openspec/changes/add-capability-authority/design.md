@@ -2,7 +2,7 @@
 
 Velkren composes runtime-owned domains onto a shared kernel: opaque ownership, typed registration, a central managed-instance factory, and an idempotent managed lifecycle. The component domain added `Reference` — a frozen owner-validated handle to a managed instance's public contract — and `Scope` — an extend-only, fallback-free visibility boundary. References are static: possession lets you interact through the target's public contract, and they are revoked only when the target is released.
 
-The constitution names references, scopes, and **capabilities** as the explicit coordination mechanisms that replace selectors and global lookup. Capability *authority* — the ability to grant a subset of authority to another holder, delegate it within a scope, and revoke it independently — was deliberately deferred out of the component change so it would not become a premature abstraction wired into reference introduction. This change adds that dynamic layer as its own domain over the existing static references, keeping the core Node.js-compatible with no DOM, renderer, or reactive dependency.
+The constitution names references, scopes, and **capabilities** as the explicit coordination mechanisms that replace selectors and global lookup. Capability _authority_ — the ability to grant a subset of authority to another holder, delegate it within a scope, and revoke it independently — was deliberately deferred out of the component change so it would not become a premature abstraction wired into reference introduction. This change adds that dynamic layer as its own domain over the existing static references, keeping the core Node.js-compatible with no DOM, renderer, or reactive dependency.
 
 ## Goals / Non-Goals
 
@@ -33,21 +33,21 @@ Alternative considered: fold capabilities into the component domain. Rejected be
 
 ### Mint capabilities from owner-held references, not from possession
 
-`mint(reference, operations)` validates that the caller owns the reference (same-runtime, genuine component-reference provenance) and that every requested operation is in the policy's operation universe, then returns a root `Capability` carrying a frozen operation set and the target's diagnostic identity. Possession of a `Capability` never exposes the private controller, the underlying reference target object, or the chain store — only the target's public contract through `invoke`.
+`mint(reference, operations)` validates that the caller owns the reference (same-runtime, genuine component-reference provenance) and that every requested operation is in the policy's operation universe, then returns a root `Capability` carrying a frozen operation set and the target's diagnostic identity. The `Capability` token is an inert diagnostic handle — grant, delegation, revocation, and invocation are performed through the owning `CapabilityRuntime`, which revalidates the token's provenance and same-runtime ownership on every call. Possession of a token never exposes the private controller, the underlying reference target object, or the chain store — only the target's public contract, and only through the domain's `invoke`.
 
-Alternative considered: let any reference holder self-mint full authority. Rejected because the policy's operation universe and audit trail must gate what authority can exist at all.
+Alternative considered: put authority operations on the token itself (as the component `Reference` does with `deref`). Rejected because a foreign or imitation token must be rejected when it _enters a domain operation_; routing grant/delegate/revoke/invoke through the domain makes that ownership check unavoidable, matching the reference-into-scope validation the component domain already performs.
 
 ### Grant and delegate are attenuation-only over a chain
 
-Every capability records a parent link and its operation set. `grant(operations?)` produces a child whose operations must be a subset of the parent's; `delegate(scope, operations?)` produces a scope-bound child under the same subset rule. Omitting `operations` copies the parent's set (no widening by default). A requested operation outside the parent's set fails with `CapabilityAttenuationError` before any child is minted. This is the concrete "no last-write-wins / no privilege escalation" enforcement: a re-grant never overwrites or broadens an existing capability; it only produces a new, equal-or-narrower one.
+Every capability records a parent link and its operation set. `grant(parent, operations?)` produces a child whose operations must be a subset of the parent's; `delegate(parent, scope, operations?)` produces a scope-bound child under the same subset rule. Omitting `operations` copies the parent's set (no widening by default). A requested operation outside the parent's set fails with `CapabilityAttenuationError` before any child is minted. This is the concrete "no last-write-wins / no privilege escalation" enforcement: a re-grant never overwrites or broadens an existing capability; it only produces a new, equal-or-narrower one.
 
-Delegation additionally checks policy: delegation must be permitted, and the child's depth must not exceed the policy maximum. A delegate is bound to the scope it was created in for diagnostic and audit purposes; it does not consult the scope for selector-style lookup.
+Delegation additionally checks policy: delegation must be permitted, and the resulting depth (parent depth + 1) must not exceed the policy maximum; grant is attenuation for the same holder and does not add a delegation hop. Delegation requires a `Scope` the caller owns as its explicit authority boundary — distinguishing a scoped delegation from a plain grant — and rejects a foreign-runtime scope; the delegate does not consult the scope, selectors, the DOM, or any global registry for lookup. Grant, delegate, and revoke on a capability whose chain is already revoked fail with `CapabilityRevokedError` before any child is minted.
 
 Alternative considered: a flat capability set with no parent links. Rejected because transitive revocation and audit lineage both require the chain.
 
 ### Revocation is transitive, idempotent, and standalone
 
-`revoke()` marks a capability and, depth-first, all its transitive delegates as revoked in one operation, appends one revocation audit record per node, and returns without touching the target instance. After revocation, `invoke` through the revoked capability or any descendant fails with `CapabilityRevokedError`. Revocation is idempotent: a second `revoke()` is a no-op that records nothing new.
+`revoke(capability)` marks the capability and, depth-first, all its transitive delegates as revoked in one operation, appends one revocation audit record per newly revoked node, and returns without touching the target instance. After revocation, `invoke` through the revoked capability or any descendant fails with `CapabilityRevokedError`. Revocation is idempotent: a second `revoke(capability)` on an already-revoked node is a no-op that records nothing new.
 
 Revocation is also lifecycle-coupled: when the target instance is released, its reference is already revoked by the component domain; a capability whose target reference no longer dereferences fails with a `LifecycleError` (target released), distinct from `CapabilityRevokedError` (authority withdrawn). The two failure modes stay distinguishable so callers can tell "the thing is gone" from "your authority was taken."
 
@@ -55,11 +55,11 @@ Alternative considered: revoke only the named node and let orphaned delegates li
 
 ### Invocation validates the whole chain before operating the target
 
-`invoke(operation, ...args)` validates, in order: capability provenance and same-runtime ownership; that neither the capability nor any ancestor is revoked; that `operation` is in the capability's operation set; then dereferences the underlying reference (which fails as a lifecycle error if the target is released) and invokes the named operation on the target's public value. A denied invocation appends a `denied` audit record and performs nothing. Foreign-runtime or imitation capabilities are rejected with an ownership/authority error before any of this.
+`invoke(capability, operation, ...args)` validates, in order: capability provenance and same-runtime ownership; that neither the capability nor any ancestor is revoked; that `operation` is in the capability's operation set; then dereferences the underlying reference (which fails as a lifecycle error if the target is released) and invokes the named operation on the target's public value. An operation not held by the capability appends a `denied` audit record and performs nothing. Foreign-runtime or imitation capabilities are rejected with an ownership or invalid-capability error before any of this.
 
 ### Policy is evaluated before a capability exists
 
-`AuthorityPolicy` declares the operation universe (the maximal grantable set), whether delegation is allowed, and the maximum delegation depth. The domain evaluates policy at mint, grant, and delegate time and fails before minting when violated. A default permissive policy (no delegation cap, delegation allowed, universe inferred from the first mint's operations) applies when none is given, so the common case stays terse while the strict case is expressible.
+`AuthorityPolicy` declares the operation universe (the maximal grantable set), whether delegation is allowed, and the maximum delegation depth. The domain evaluates policy at mint, grant, and delegate time and fails before minting when violated. A default permissive policy (delegation allowed, no delegation cap, no operation-universe constraint) applies when none is given, so the common case stays terse while a strict universe is opt-in. Because grant and delegate are subset-only, an explicit universe checked at mint transitively bounds every derived capability.
 
 ### Audit is append-only and deterministically ordered
 

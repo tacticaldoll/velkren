@@ -59,12 +59,12 @@ The system SHALL derive a child capability through `grant`, whose operation set 
 
 ### Requirement: Scoped delegation over a chain
 
-The system SHALL derive a scope-bound capability through `delegate`, recording a parent link and depth in a delegation chain, under the same subset-attenuation rule as grant. Delegation SHALL be permitted only when the policy allows it and the resulting depth does not exceed the policy maximum; a violation MUST fail with a policy error before a delegate is minted. A delegate SHALL bind its scope for audit and diagnostics only and MUST NOT consult the scope, selectors, the DOM, or any global registry for lookup. Chain lineage SHALL be inspectable without exposing mutable internals.
+The system SHALL derive a scope-bound capability through `delegate`, recording a parent link and depth in a delegation chain, under the same subset-attenuation rule as grant. Delegation SHALL require a `Scope` the caller owns as its explicit authority boundary and MUST reject a foreign-runtime scope. Delegation SHALL be permitted only when the policy allows it and the resulting depth does not exceed the policy maximum; a violation MUST fail with a policy error before a delegate is minted. A delegate MUST NOT consult the scope, selectors, the DOM, or any global registry for lookup. Chain lineage SHALL be inspectable without exposing mutable internals.
 
 #### Scenario: Delegate within a scope
 
 - **WHEN** a holder delegates a subset of its capability within a scope it owns
-- **THEN** the derived capability records the parent link and scope and carries the delegated subset
+- **THEN** the derived capability records the parent link and depth and carries the delegated subset
 
 #### Scenario: Reject delegation forbidden by policy
 
@@ -97,7 +97,7 @@ Revoking a capability SHALL invalidate it and all its transitive delegates immed
 
 ### Requirement: Authority policy enforcement
 
-The system SHALL evaluate the domain's `AuthorityPolicy` — operation universe, delegation permission, and maximum delegation depth — at mint, grant, and delegate time, and MUST fail before minting any capability when a request violates it. Attenuation (subset-only derivation) SHALL hold regardless of policy. A default policy SHALL allow delegation with no depth cap and infer its universe from the first mint so the terse case needs no explicit policy.
+The system SHALL evaluate the domain's `AuthorityPolicy` — operation universe, delegation permission, and maximum delegation depth — at mint, grant, and delegate time, and MUST fail before minting any capability when a request violates it. Attenuation (subset-only derivation) SHALL hold regardless of policy. A default policy SHALL allow delegation with no depth cap and impose no operation-universe constraint, so the terse case needs no explicit policy while a strict universe is opt-in.
 
 #### Scenario: Enforce operation universe
 

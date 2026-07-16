@@ -42,7 +42,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-plugin-transactions
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add PluginClass and PluginInstallation lifecycle, staged multi-registry contributions, atomic commit and rollback, protected uninstall, and explicit cascade.
 - **Dependencies**: `add-managed-listeners`
 - **Why next**: Plugins must not expose partially installed event, listener, or later component capabilities.
@@ -51,7 +51,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-component-runtime
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add registered ComponentClass definitions, ComponentFactory, managed component instances, scopes, references, capabilities, and logical instance trees.
 - **Dependencies**: `add-plugin-transactions`
 - **Why next**: Components require stable ownership, registration, events, listeners, and plugin contribution semantics.

@@ -51,12 +51,21 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-component-runtime
 
-- **Status**: ready
-- **Outcome**: Add registered ComponentClass definitions, ComponentFactory, managed component instances, scopes, references, capabilities, and logical instance trees.
+- **Status**: active
+- **Outcome**: Add registered ComponentClass definitions, ComponentFactory, managed component instances, scopes, owner-validated references, and logical instance trees.
 - **Dependencies**: `add-plugin-transactions`
 - **Why next**: Components require stable ownership, registration, events, listeners, and plugin contribution semantics.
 - **Acceptance**: Two isolated runtime trees use the same definitions without ownership or reference collisions.
-- **Deferred**: Renderer and DOM behavior.
+- **Deferred**: Dynamic capability authority (`add-capability-authority`), renderer, and DOM behavior.
+
+## add-capability-authority
+
+- **Status**: candidate
+- **Outcome**: Add a dynamic capability model over owner-validated references: explicit grant, scoped delegation, and standalone revocation with authority policy and audit.
+- **Dependencies**: `add-component-runtime`
+- **Why next**: References establish static owner-validated access first; dynamic grant/delegate/revoke authority must build on stable component scopes and references rather than being smuggled into their introduction.
+- **Acceptance**: A reference is granted, delegated within a scope, and revoked without leaving a live holder able to operate the target.
+- **Deferred**: Renderer, DOM, and cross-runtime capability sharing.
 
 ## add-template-render-plans
 

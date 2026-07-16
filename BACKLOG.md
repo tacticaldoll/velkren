@@ -96,7 +96,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-solid-adapter-prototype
 
-- **Status**: ready
+- **Status**: done
 - **Outcome**: Add the first SolidJS/browser adapter, native input snapshot boundary, reactive mount and unmount, and deterministic disposal.
 - **Dependencies**: `add-template-render-plans`, `add-render-root-projection`
 - **Why next**: The first concrete renderer must prove core semantics remain renderer-independent.
@@ -105,7 +105,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## validate-two-editor-scenario
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add the minimal Panel, TextField, Button, Dialog, Stack layout, and a two-editor validation application.
 - **Dependencies**: `add-layout-coordination`, `add-solid-adapter-prototype`
 - **Why next**: A real multi-instance screen is the first end-to-end proof of isolation, binding, event, template, layout, rendering, and disposal semantics.

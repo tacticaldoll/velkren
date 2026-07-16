@@ -88,6 +88,21 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`,
 
 Never bundle unrelated changes into one commit.
 
+### Attribution
+
+Do not add AI or tool attribution to commits or pull requests. No
+`Co-Authored-By` trailer for an AI assistant and no "Generated with" lines.
+Commits are authored under the human contributor only.
+
+## Review
+
+Before committing the output of a **propose** or **apply** step, run an
+adversarial review of that output — an independent, refutation-minded pass over
+the artifacts or the diff, checked against the invariants in `PROJECT.md` and
+the accepted OpenSpec requirements — and address its findings. Do not commit
+either phase's output unreviewed. The **sync** and **archive** steps move
+already-reviewed content and do not require a further adversarial pass.
+
 ## Definition Of Done
 
 Run these from the project root before checking off a task, syncing specs, or

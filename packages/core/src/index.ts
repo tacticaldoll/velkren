@@ -119,3 +119,24 @@ export {
   type PluginLifecycleRecord,
 } from "./plugin-class.js";
 export { type PluginInstallation } from "./plugin-runtime.js";
+export {
+  createComponentClass,
+  isComponentClass,
+  ComponentDefinitionError,
+  ComponentTreeError,
+  DuplicateComponentRuntimeError,
+  InvalidReferenceError,
+  ScopeResolutionError,
+  type ComponentClass,
+  type ComponentCreate,
+  type ComponentCreationContext,
+  type ComponentInstance,
+  type Reference,
+  type Scope,
+} from "./component-class.js";
+export {
+  createComponentRuntime,
+  type ComponentClassRegistration,
+  type ComponentRuntime,
+  type ScopeEntries,
+} from "./component-runtime.js";

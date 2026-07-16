@@ -166,3 +166,23 @@ export {
   type TemplateRuntime,
   type TemplateSlotFills,
 } from "./template-runtime.js";
+export {
+  assertRendererPort,
+  InvalidRendererPortError,
+  ProjectionError,
+  PROJECTION_IDENTITY_ATTRIBUTE,
+  type AdapterRoot,
+  type Projection,
+  type RendererPort,
+  type RootHandle,
+} from "./renderer-port.js";
+export {
+  createProjectionRuntime,
+  type ProjectionRuntime,
+} from "./projection-runtime.js";
+export {
+  createFakeRenderer,
+  type FakeRenderer,
+  type FakeRenderedNode,
+  type FakeRoot,
+} from "./fake-renderer.js";

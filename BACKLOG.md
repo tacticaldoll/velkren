@@ -78,7 +78,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-render-root-projection
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add renderer ports, RootHandles, permanent DOM identity attributes, managed commit repair, and a fake renderer.
 - **Dependencies**: `add-template-render-plans`
 - **Why next**: DOM projection must establish observable identity without becoming the runtime's ownership source.
@@ -87,7 +87,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-layout-coordination
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add handle-only layout contracts, invalidation, and deterministic synchronous measure, calculate, and apply phases.
 - **Dependencies**: `add-render-root-projection`
 - **Why next**: Layout needs stable RootHandles but must remain independently replaceable from renderer projection.
@@ -96,7 +96,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-solid-adapter-prototype
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add the first SolidJS/browser adapter, native input snapshot boundary, reactive mount and unmount, and deterministic disposal.
 - **Dependencies**: `add-template-render-plans`, `add-render-root-projection`
 - **Why next**: The first concrete renderer must prove core semantics remain renderer-independent.

@@ -186,3 +186,14 @@ export {
   type FakeRenderedNode,
   type FakeRoot,
 } from "./fake-renderer.js";
+export {
+  createLayoutRuntime,
+  LayoutPhase,
+  DuplicateLayoutRuntimeError,
+  LayoutPhaseError,
+  LayoutRegistrationError,
+  type LayoutContract,
+  type LayoutPhaseContext,
+  type LayoutPhaseHook,
+  type LayoutRuntime,
+} from "./layout-runtime.js";

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Capability Authority
+
+## Purpose
+
+Define a dynamic capability-authority domain over owner-validated component references: policy-governed minting, attenuation-only grant, scope-bound delegation across a delegation chain, standalone and lifecycle-coupled revocation, attenuation-only invocation of the target's public contract, and an immutable, deterministically ordered audit trail — composed onto the shared ownership and managed-lifecycle kernel without renderer, DOM, reactive, or cross-runtime dependencies.
+
+## Requirements
 
 ### Requirement: Capability authority domain
 

@@ -1,0 +1,13 @@
+{
+  "name": "@velkren/two-editor-validation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@velkren/core": "0.1.0",
+    "@velkren/solid-adapter": "0.1.0"
+  }
+}

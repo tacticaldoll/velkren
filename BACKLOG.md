@@ -96,7 +96,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-solid-adapter-prototype
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add the first SolidJS/browser adapter, native input snapshot boundary, reactive mount and unmount, and deterministic disposal.
 - **Dependencies**: `add-template-render-plans`, `add-render-root-projection`
 - **Why next**: The first concrete renderer must prove core semantics remain renderer-independent.

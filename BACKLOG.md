@@ -51,7 +51,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-reference-capability
 
-- **Status**: ready
+- **Status**: done
 - **Outcome**: Extract a shared, owner-validated reference/capability primitive with framework provenance and a standard public (use-only) / private (control and release) split, so future domains consume one abstraction instead of re-implementing the pattern.
 - **Dependencies**: `initial-project-shape`
 - **Why next**: Every domain since semantic events has re-implemented the same owner-validated capability pattern (provenance WeakMap, ownership assertion, public/private handles); event-endpoint is the clearest instance. The component runtime would be the sixth hand-rolled copy. A shared primitive must exist before it, or the duplication compounds.
@@ -60,7 +60,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-component-runtime
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add registered ComponentClass definitions, ComponentFactory, managed component instances, logical instance trees, and Scope as the authority boundary layered along the tree. Components consume the shared reference/capability primitive rather than redefining it.
 - **Dependencies**: `add-plugin-transactions`, `add-reference-capability`
 - **Why next**: Components require stable ownership, registration, events, listeners, plugin contribution semantics, and a shared reference/capability primitive. Scope earns meaningful acceptance only against a real instance tree, so it lands here rather than in the primitive.

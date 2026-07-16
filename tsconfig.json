@@ -6,6 +6,9 @@
     },
     {
       "path": "./packages/solid-adapter"
+    },
+    {
+      "path": "./packages/two-editor-validation"
     }
   ]
 }

@@ -87,7 +87,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-layout-coordination
 
-- **Status**: ready
+- **Status**: done
 - **Outcome**: Add handle-only layout contracts, invalidation, and deterministic synchronous measure, calculate, and apply phases.
 - **Dependencies**: `add-render-root-projection`
 - **Why next**: Layout needs stable RootHandles but must remain independently replaceable from renderer projection.

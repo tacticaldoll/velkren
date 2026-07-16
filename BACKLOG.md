@@ -105,7 +105,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## validate-two-editor-scenario
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add the minimal Panel, TextField, Button, Dialog, Stack layout, and a two-editor validation application.
 - **Dependencies**: `add-layout-coordination`, `add-solid-adapter-prototype`
 - **Why next**: A real multi-instance screen is the first end-to-end proof of isolation, binding, event, template, layout, rendering, and disposal semantics.

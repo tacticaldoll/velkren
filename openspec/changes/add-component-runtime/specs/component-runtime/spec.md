@@ -69,7 +69,7 @@ Component instances SHALL compose into a logical tree through owner-validated at
 
 ### Requirement: Deterministic tree-ordered release cascade
 
-Releasing a component instance SHALL release its attached descendants first in deterministic reverse-attachment order, then release the instance itself. Release MUST be idempotent, MUST detach the instance from its parent, MUST revoke references and scoped endpoints the instance issued, and MUST clean owned resources in reverse registration order without silently swallowing failures.
+Releasing a component instance SHALL release its attached descendants first in deterministic reverse-attachment order, then release the instance itself. Release MUST be idempotent, MUST detach the instance from its parent, MUST revoke references the instance issued so a released instance retains no reference to its value or other managed objects, and MUST clean owned resources in reverse registration order without silently swallowing failures.
 
 #### Scenario: Release cascades to descendants
 
@@ -112,7 +112,7 @@ The system SHALL define `Scope` as an explicit authority boundary that controls 
 
 ### Requirement: Owner-validated references
 
-The system SHALL expose `Reference` as an owner-validated, frozen opaque capability for interacting with a component instance or endpoint through its public contract. Possession of a reference MUST NOT expose private runtime capabilities. Strings, DOM attributes, selectors, and structural imitations MUST NOT grant a reference, and a foreign-runtime reference MUST be rejected before use. Access through a reference to a released target MUST fail as active-only. Dynamic capability grant, delegation, and standalone revocation authority are out of scope.
+The system SHALL expose `Reference` as an owner-validated, frozen opaque capability for interacting with a component instance through its public contract. Possession of a reference MUST NOT expose private runtime capabilities. Strings, DOM attributes, selectors, and structural imitations MUST NOT grant a reference, and a foreign-runtime reference MUST be rejected with an ownership error when it enters a domain operation. Access through a reference to a released target MUST fail as active-only. Dynamic capability grant, delegation, and standalone revocation authority are out of scope.
 
 #### Scenario: Use valid reference
 

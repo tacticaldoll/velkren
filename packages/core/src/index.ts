@@ -142,6 +142,26 @@ export {
   type ScopeEntries,
 } from "./component-runtime.js";
 export {
+  CapabilityAttenuationError,
+  CapabilityAuthorityError,
+  CapabilityPolicyError,
+  CapabilityRevokedError,
+  DuplicateCapabilityRuntimeError,
+  InvalidCapabilityError,
+  type AuthorityPolicy,
+  type Capability,
+  type CapabilityAuditAction,
+  type CapabilityAuditRecord,
+  type CapabilityAuditTranscript,
+  type CapabilityId,
+  type CapabilityStatus,
+} from "./capability.js";
+export {
+  createCapabilityRuntime,
+  isCapability,
+  type CapabilityRuntime,
+} from "./capability-runtime.js";
+export {
   createTemplateClass,
   isTemplateClass,
   DuplicateTemplateBindingError,

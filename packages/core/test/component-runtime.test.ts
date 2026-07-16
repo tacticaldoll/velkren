@@ -218,8 +218,11 @@ describe("scopes and references", () => {
   it("fails to dereference a released target", async () => {
     const { app, inst } = await instance();
     const reference = app.reference(inst);
+    const targetId = reference.targetId;
     await inst.release();
     expect(() => reference.deref()).toThrow(LifecycleError);
+    // Only diagnostic identity survives revocation.
+    expect(reference.targetId).toBe(targetId);
   });
 
   it("resolves names through the scope chain and fails explicitly otherwise", async () => {

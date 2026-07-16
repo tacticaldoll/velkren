@@ -165,6 +165,14 @@ class DefaultComponentRuntime implements ComponentRuntime {
       });
       acceptsCleanups = false;
       instance.assertActive("finish component creation");
+      // Hold the created value behind a cleared-on-release cell so a released
+      // instance retains no reference to its value or other managed objects.
+      let held: { readonly value: Value } | undefined = {
+        value: value as Value,
+      };
+      controller.addCleanup(() => {
+        held = undefined;
+      });
       // The child cascade is added last so it releases first.
       controller.addCleanup(() => releaseChildren(state));
       Object.defineProperties(instance, {
@@ -172,7 +180,7 @@ class DefaultComponentRuntime implements ComponentRuntime {
           enumerable: true,
           get(this: ComponentInstance) {
             this.assertActive("read its created value");
-            return value as Value;
+            return (held as { readonly value: Value }).value;
           },
         },
         parent: {
@@ -249,14 +257,17 @@ class DefaultComponentRuntime implements ComponentRuntime {
     instance.assertActive("issue a reference");
     const state = requireState(instance);
     const runtime = this.runtime;
+    // Capture only the diagnostic id string so the reference closure never
+    // retains the target instance after it is released and revoked.
+    const targetId = instance.id;
     const reference = Object.freeze(
       markRuntimeOwned(runtime, {
-        targetId: instance.id,
+        targetId,
         deref(): ComponentInstance<Value> {
           const target = referenceTargets.get(reference);
           if (target === undefined) {
             throw new LifecycleError(
-              instance.id,
+              targetId,
               "released",
               "dereference a revoked reference",
             );

@@ -136,7 +136,33 @@ export {
 } from "./component-class.js";
 export {
   createComponentRuntime,
+  isComponentReference,
   type ComponentClassRegistration,
   type ComponentRuntime,
   type ScopeEntries,
 } from "./component-runtime.js";
+export {
+  createTemplateClass,
+  isTemplateClass,
+  DuplicateTemplateBindingError,
+  DuplicateTemplateRuntimeError,
+  RenderPlanError,
+  TemplateDefinitionError,
+  TemplateResolutionError,
+  type RenderNode,
+  type RenderPlan,
+  type ResolvedSlot,
+  type TemplateClass,
+  type TemplateContent,
+  type TemplateDefinition,
+  type TemplateExplanation,
+  type TemplateNode,
+  type TemplateSlotDeclaration,
+  type TemplateSlotFill,
+} from "./template-class.js";
+export {
+  createTemplateRuntime,
+  type TemplateClassRegistration,
+  type TemplateRuntime,
+  type TemplateSlotFills,
+} from "./template-runtime.js";

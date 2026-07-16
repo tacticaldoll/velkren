@@ -119,3 +119,14 @@ export {
   type PluginLifecycleRecord,
 } from "./plugin-class.js";
 export { type PluginInstallation } from "./plugin-runtime.js";
+export {
+  createReferenceCapability,
+  resolveReferenceCapability,
+  assertReferenceCapability,
+  assertPrivateReferenceCapability,
+  InvalidReferenceCapabilityError,
+  type PrivateReferenceCapability,
+  type ReferenceCapability,
+  type ReferenceCapabilityIdentity,
+  type ReferenceCapabilityPair,
+} from "./reference-capability.js";

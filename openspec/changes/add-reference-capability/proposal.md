@@ -14,9 +14,11 @@ Every managed domain since semantic events hand-rolls the same "owner-validated 
 ## Capabilities
 
 ### New Capabilities
+
 - `reference-capability`: owner-validated, provenance-branded capability handles with a standard public (use-only) / private (control-and-release) split, resolvable only through the owning runtime and released deterministically through the managed lifecycle.
 
 ### Modified Capabilities
+
 <!-- None. This change adds the primitive without altering existing spec-level behavior. Existing domains migrate under separate refactor-*-onto-references changes. -->
 
 ## Impact

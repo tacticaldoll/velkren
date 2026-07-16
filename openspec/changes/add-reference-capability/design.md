@@ -21,8 +21,8 @@ Only one domain today, `event-endpoint.ts`, also exposes the full caller-facing 
 
 **Non-Goals:**
 
-- **Scope.** The authority boundary that gates *which* references are visible lands with `add-component-runtime`, where an instance tree gives it real acceptance. This change ships no Scope.
-- **Migrating existing domains.** `event-endpoint`, listener, and plugin code stay untouched here. They migrate under separate `refactor-*-onto-references` changes, sequenced *after* the component runtime proves the primitive generalizes.
+- **Scope.** The authority boundary that gates _which_ references are visible lands with `add-component-runtime`, where an instance tree gives it real acceptance. This change ships no Scope.
+- **Migrating existing domains.** `event-endpoint`, listener, and plugin code stay untouched here. They migrate under separate `refactor-*-onto-references` changes, sequenced _after_ the component runtime proves the primitive generalizes.
 - No renderer/DOM types, no reactive primitives in the contract (`PROJECT.md` invariant).
 
 ## Decisions
@@ -33,7 +33,7 @@ Only one domain today, `event-endpoint.ts`, also exposes the full caller-facing 
 
 **D3 — Release flows through the existing managed lifecycle.** Capabilities are `createManagedResource` instances, so idempotent release, tombstones, `assertActive`, and non-swallowed cleanup failures come from `managed-lifecycle.ts` unchanged rather than being re-implemented. Alternative: a bespoke release path. Rejected — it would fork lifecycle semantics the project already guarantees.
 
-**D4 — `event-endpoint` is a design witness, not a migration target.** Its existing semantics are used *at design time* to check the primitive's shape is sufficient — this is reasoning captured here in the design, not a runtime test. Its code and spec are not modified in this change, and the primitive's own tests do not import it. This keeps the change minimal and scoped (`PROJECT.md`) and defers refactor risk until the component runtime has independently validated the primitive. Design-witness check performed: event-endpoint's `EventEndpoint` / `PrivateEventEndpoint` split, its ownership-then-provenance ordering, and its `release()` on the private side all map onto the primitive's public/private handles, resolution order, and private-handle release — no shape gap found.
+**D4 — `event-endpoint` is a design witness, not a migration target.** Its existing semantics are used _at design time_ to check the primitive's shape is sufficient — this is reasoning captured here in the design, not a runtime test. Its code and spec are not modified in this change, and the primitive's own tests do not import it. This keeps the change minimal and scoped (`PROJECT.md`) and defers refactor risk until the component runtime has independently validated the primitive. Design-witness check performed: event-endpoint's `EventEndpoint` / `PrivateEventEndpoint` split, its ownership-then-provenance ordering, and its `release()` on the private side all map onto the primitive's public/private handles, resolution order, and private-handle release — no shape gap found.
 
 ## Risks / Trade-offs
 

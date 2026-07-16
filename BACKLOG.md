@@ -69,7 +69,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-template-render-plans
 
-- **Status**: ready
+- **Status**: active
 - **Outcome**: Add registered template definitions, named slots and roots, deterministic resolution, normalized renderer-neutral render plans, and explanation APIs.
 - **Dependencies**: `add-component-runtime`
 - **Why next**: Renderer adapters need stable, inspectable render plans rather than component-specific rendering internals.

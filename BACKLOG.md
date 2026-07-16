@@ -51,7 +51,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-component-runtime
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add registered ComponentClass definitions, ComponentFactory, managed component instances, scopes, owner-validated references, and logical instance trees.
 - **Dependencies**: `add-plugin-transactions`
 - **Why next**: Components require stable ownership, registration, events, listeners, and plugin contribution semantics.
@@ -60,7 +60,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-capability-authority
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add a dynamic capability model over owner-validated references: explicit grant, scoped delegation, and standalone revocation with authority policy and audit.
 - **Dependencies**: `add-component-runtime`
 - **Why next**: References establish static owner-validated access first; dynamic grant/delegate/revoke authority must build on stable component scopes and references rather than being smuggled into their introduction.
@@ -69,7 +69,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-template-render-plans
 
-- **Status**: candidate
+- **Status**: ready
 - **Outcome**: Add registered template definitions, named slots and roots, deterministic resolution, normalized renderer-neutral render plans, and explanation APIs.
 - **Dependencies**: `add-component-runtime`
 - **Why next**: Renderer adapters need stable, inspectable render plans rather than component-specific rendering internals.

@@ -6,7 +6,7 @@ It provides framework-independent runtime semantics for definitions, managed ins
 
 ## Status
 
-Velkren's runtime foundation, typed namespace loading, semantic events, managed endpoints, listeners, middleware, and relayers are specified and implemented. The active OpenSpec change adds atomic plugin contribution transactions, rollback, and protected uninstall; higher-level runtime domains remain deferred to the dependency-ordered backlog.
+Velkren's runtime foundation, typed namespace loading, semantic events, managed endpoints, listeners, middleware, relayers, and atomic plugin contribution transactions are specified and implemented. No change is currently active; the next planned change extracts a shared reference/capability authority primitive ahead of the component runtime. Higher-level runtime domains remain deferred to the dependency-ordered backlog.
 
 See:
 

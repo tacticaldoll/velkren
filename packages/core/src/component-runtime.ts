@@ -82,6 +82,15 @@ const componentReferences = new WeakSet<object>();
 const referenceTargets = new WeakMap<Reference, ComponentInstance>();
 const runtimeInstanceSequences = new WeakMap<Runtime, number>();
 
+/** Narrow an unknown value to a genuine helper-minted component Reference. */
+export function isComponentReference(value: unknown): value is Reference {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    componentReferences.has(value)
+  );
+}
+
 /** Create the single component domain for a Runtime. */
 export function createComponentRuntime(runtime: Runtime): ComponentRuntime {
   if (componentRuntimes.has(runtime)) {

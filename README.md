@@ -6,7 +6,7 @@ It provides framework-independent runtime semantics for definitions, managed ins
 
 ## Status
 
-Velkren's runtime foundation, typed namespace loading, semantic events, managed endpoints, listeners, middleware, relayers, plugin transactions, and the component runtime are specified and implemented. No OpenSpec change is currently active; capability authority and template render plans are the next ready outcomes in the dependency-ordered backlog.
+Velkren's runtime foundation, typed namespace loading, semantic events, managed endpoints, listeners, middleware, relayers, plugin transactions, the component runtime, and template render plans are specified and implemented. No OpenSpec change is currently active; capability authority and render-root projection are the next ready outcomes in the dependency-ordered backlog.
 
 See:
 

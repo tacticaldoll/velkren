@@ -29,7 +29,9 @@ export interface FakeRenderer extends RendererPort {
   /**
    * Test-only: invoke every delivery callback registered for `type` on `root`
    * with `snapshot`, mimicking an adapter reporting a captured interaction. A
-   * removed root or an unregistered type delivers nothing.
+   * removed root or an unregistered type delivers nothing. A throw from a
+   * delivery callback does NOT propagate out, mirroring a real event system so
+   * the failure contract is observed only through the binding's failure channel.
    */
   simulateInteraction(root: FakeRoot, type: string, snapshot: JsonObject): void;
 }
@@ -107,7 +109,15 @@ export function createFakeRenderer(): FakeRenderer {
     ): void {
       const delivers = registrations.get(root)?.get(type);
       if (delivers === undefined) return;
-      for (const deliver of [...delivers]) deliver(snapshot);
+      for (const deliver of [...delivers]) {
+        try {
+          deliver(snapshot);
+        } catch {
+          // Mirror real event dispatch: a delivery-callback throw is swallowed,
+          // not propagated out of the simulation. Delivery-time failures are
+          // observed through the binding's owned failure channel instead.
+        }
+      }
     },
   };
 }

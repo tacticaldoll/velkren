@@ -20,6 +20,33 @@ import { createJsonSnapshot, type JsonObject } from "./strict-json.js";
 /** Projects an inward interaction snapshot into an EventClass payload. */
 export type InteractionProjection = (snapshot: JsonObject) => unknown;
 
+/** Why a reported interaction failed at delivery time. */
+export type InteractionFailureReason =
+  | "non-object-snapshot"
+  | "invalid-payload"
+  | "projection-error"
+  | "dispatch-error";
+
+/** A typed delivery-time failure surfaced through the owned failure channel. */
+export interface InteractionFailure {
+  readonly root: RootHandle;
+  readonly type: string;
+  readonly reason: InteractionFailureReason;
+  readonly cause: unknown;
+}
+
+/** Observes delivery-time interaction failures through the owned channel. */
+export type InteractionFailureObserver = (failure: InteractionFailure) => void;
+
+/** Options for the interaction-binding domain. */
+export interface InteractionBindingOptions {
+  /**
+   * Observes delivery-time failures. With none registered, a failure is instead
+   * reported through `globalThis.reportError` so it is never silently lost.
+   */
+  readonly onFailure?: InteractionFailureObserver;
+}
+
 /** A handle to one active `(root, interaction-type)` binding. */
 export interface InteractionBindingHandle {
   readonly root: RootHandle;
@@ -94,6 +121,7 @@ export class InvalidInteractionPayloadError extends TypeError {
 }
 
 interface BindingEntry {
+  readonly type: string;
   readonly eventClass: EventClass;
   readonly project: InteractionProjection;
   live: boolean;
@@ -106,11 +134,17 @@ export function createInteractionBinding(
   runtime: Runtime,
   projection: ProjectionRuntime,
   events: EventRuntime,
+  options: InteractionBindingOptions = {},
 ): InteractionBinding {
   if (interactionRuntimes.has(runtime)) {
     throw new DuplicateInteractionRuntimeError();
   }
-  const domain = new DefaultInteractionBinding(runtime, projection, events);
+  const domain = new DefaultInteractionBinding(
+    runtime,
+    projection,
+    events,
+    options.onFailure,
+  );
   const frozen = Object.freeze(domain);
   interactionRuntimes.set(runtime, frozen);
   return frozen;
@@ -121,12 +155,16 @@ class DefaultInteractionBinding implements InteractionBinding {
   readonly #bindings = new WeakMap<RootHandle, Map<string, BindingEntry>>();
   readonly #pending = new Set<Promise<unknown>>();
 
+  readonly #onFailure: InteractionFailureObserver | undefined;
+
   constructor(
     readonly runtime: Runtime,
     projection: ProjectionRuntime,
     private readonly events: EventRuntime,
+    onFailure: InteractionFailureObserver | undefined,
   ) {
     this.#accessor = projectionInteractionAccessor(projection);
+    this.#onFailure = onFailure;
   }
 
   bind(
@@ -164,7 +202,7 @@ class DefaultInteractionBinding implements InteractionBinding {
       throw new DuplicateInteractionBindingError(type);
     }
 
-    const entry: BindingEntry = { eventClass, project, live: true };
+    const entry: BindingEntry = { type, eventClass, project, live: true };
     // The port registration is created before the entry is recorded, so a port
     // failure leaves no stale binding.
     this.#accessor.registerInteraction(
@@ -190,10 +228,25 @@ class DefaultInteractionBinding implements InteractionBinding {
   }
 
   #deliver(root: RootHandle, entry: BindingEntry, rawSnapshot: unknown): void {
+    // Liveness FIRST: a delivery that races release (root already disposing, or
+    // the entry already dropped) surfaces neither an event nor a failure, so
+    // normal teardown raises no error report.
+    if (!entry.live || root.status !== ManagedStatus.Active) return;
+
     // The inward boundary: only an immutable JSON object may cross. Reject
-    // anything else (a function, a live node, a primitive) with no dispatch.
+    // anything else (a function, a live node, a primitive) with no dispatch,
+    // routing the failure to the owned channel rather than throwing out of the
+    // adapter's swallowing event callback.
     if (!isPlainObject(rawSnapshot)) {
-      throw new NonObjectSnapshotError("snapshot is not a plain JSON object");
+      this.#report({
+        root,
+        type: entry.type,
+        reason: "non-object-snapshot",
+        cause: new NonObjectSnapshotError(
+          "snapshot is not a plain JSON object",
+        ),
+      });
+      return;
     }
     let snapshot: JsonObject;
     try {
@@ -201,33 +254,126 @@ class DefaultInteractionBinding implements InteractionBinding {
       // live reference and rejects any non-JSON content.
       snapshot = createJsonSnapshot<JsonObject>(rawSnapshot).value;
     } catch (cause) {
-      throw new NonObjectSnapshotError("snapshot is not immutable JSON data", {
-        cause,
+      this.#report({
+        root,
+        type: entry.type,
+        reason: "non-object-snapshot",
+        cause: new NonObjectSnapshotError(
+          "snapshot is not immutable JSON data",
+          { cause },
+        ),
       });
+      return;
     }
 
-    // Re-check liveness at delivery time: a delivery that races release (root
-    // already disposing, or the entry already dropped) dispatches nothing.
-    if (!entry.live || root.status !== ManagedStatus.Active) return;
-
-    const payload = entry.project(snapshot);
+    let payload: unknown;
     try {
-      // Fail loudly before dispatch so no partially-populated event is created.
+      payload = entry.project(snapshot);
+    } catch (cause) {
+      // A throwing projection is a delivery-time failure, not an escape hatch.
+      this.#report({
+        root,
+        type: entry.type,
+        reason: "projection-error",
+        cause,
+      });
+      return;
+    }
+
+    try {
+      // Fail before dispatch so no partially-populated event is created.
       validateEventPayload(entry.eventClass, payload);
     } catch (cause) {
-      if (cause instanceof EventPayloadValidationError) {
-        throw new InvalidInteractionPayloadError(entry.eventClass.id, cause);
-      }
-      throw cause;
+      // Any validation throw is a delivery-time failure: wrap the expected
+      // payload-rejection in InvalidInteractionPayloadError, and route any other
+      // throw as its own cause so nothing escapes synchronously into the adapter.
+      this.#report({
+        root,
+        type: entry.type,
+        reason: "invalid-payload",
+        cause:
+          cause instanceof EventPayloadValidationError
+            ? new InvalidInteractionPayloadError(entry.eventClass.id, cause)
+            : cause,
+      });
+      return;
     }
 
     const dispatch = this.events.dispatch(entry.eventClass.id, payload);
-    this.#pending.add(dispatch);
+    // Track the dispatch — including its failure routing — so settled() awaits
+    // it and a rejection is reported through the channel, not discarded.
+    const tracked = dispatch.then(undefined, (cause: unknown) => {
+      // A dispatch-error is async and can settle after release: re-check
+      // liveness so a dispatch racing teardown is suppressed, not surfaced.
+      if (entry.live && root.status === ManagedStatus.Active) {
+        this.#report({
+          root,
+          type: entry.type,
+          reason: "dispatch-error",
+          cause,
+        });
+      }
+    });
+    this.#pending.add(tracked);
     const settle = (): void => {
-      this.#pending.delete(dispatch);
+      this.#pending.delete(tracked);
     };
-    void dispatch.then(settle, settle);
+    void tracked.then(settle, settle);
   }
+
+  #report(failure: InteractionFailure): void {
+    const observer = this.#onFailure;
+    if (observer !== undefined) {
+      try {
+        observer(failure);
+      } catch (observerError) {
+        // A throwing observer is contained and escalated to the default
+        // reporter, never re-entering the adapter's event callback.
+        reportUnobserved(coerceError(observerError));
+      }
+      return;
+    }
+    // Never silently lost: with no observer, report through the default reporter
+    // without an uncaught throw (swallow-safe inside the adapter's callback).
+    reportUnobserved(asError(failure));
+  }
+}
+
+/**
+ * Report an unobserved delivery-time failure without ever throwing out of the
+ * delivery callback: prefer the global `reportError` when the host provides it,
+ * fall back to `console.error` (always present) otherwise, and swallow any throw
+ * from the reporter itself — a reporter of last resort must never escape.
+ */
+function reportUnobserved(error: Error): void {
+  const host = globalThis as {
+    reportError?: unknown;
+    console?: { error(value: unknown): void };
+  };
+  try {
+    if (typeof host.reportError === "function") {
+      (host.reportError as (value: unknown) => void)(error);
+    } else {
+      host.console?.error(error);
+    }
+  } catch {
+    // The reporter of last resort itself must never throw back into the caller.
+  }
+}
+
+/** Wrap a failure as an Error carrying the original cause, for reportError. */
+function asError(failure: InteractionFailure): Error {
+  return new Error(
+    `Interaction ${JSON.stringify(failure.type)} failed (${failure.reason}).`,
+    { cause: failure.cause },
+  );
+}
+
+/** Coerce an arbitrary thrown value into an Error for reportError. */
+function coerceError(value: unknown): Error {
+  return value instanceof Error
+    ? value
+    : new Error(String(value), { cause: value });
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -210,6 +210,10 @@ export {
   NonObjectSnapshotError,
   type InteractionBinding,
   type InteractionBindingHandle,
+  type InteractionBindingOptions,
+  type InteractionFailure,
+  type InteractionFailureObserver,
+  type InteractionFailureReason,
   type InteractionProjection,
 } from "./interaction-binding.js";
 export {

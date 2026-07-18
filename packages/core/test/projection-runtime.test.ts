@@ -52,6 +52,37 @@ describe("renderer port validation", () => {
       InvalidRendererPortError,
     );
   });
+
+  it("rejects a renderer missing only registerInteraction", () => {
+    const runtime = createRuntime({ id: "app" });
+    const withoutInteraction = {
+      createRoot() {},
+      commit() {},
+      readIdentity() {
+        return undefined;
+      },
+      removeRoot() {},
+    };
+    expect(() => createProjectionRuntime(runtime, withoutInteraction)).toThrow(
+      InvalidRendererPortError,
+    );
+  });
+
+  it("accepts a conforming stub including registerInteraction", () => {
+    const runtime = createRuntime({ id: "app" });
+    const conforming = {
+      createRoot() {},
+      commit() {},
+      readIdentity() {
+        return undefined;
+      },
+      removeRoot() {},
+      registerInteraction() {
+        return { remove() {} };
+      },
+    };
+    expect(() => createProjectionRuntime(runtime, conforming)).not.toThrow();
+  });
 });
 
 describe("managed RootHandle projection", () => {

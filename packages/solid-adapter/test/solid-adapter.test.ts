@@ -69,7 +69,7 @@ describe("SolidJS renderer port", () => {
     const element = renderer.container.firstElementChild as HTMLInputElement;
 
     let pending: Promise<unknown> | undefined;
-    renderer.bindInteraction(root, "input", (snapshot) => {
+    renderer.registerInteraction(root, "input", (snapshot) => {
       pending = events.dispatch(changed.id, {
         value: typeof snapshot.value === "string" ? snapshot.value : "",
       });
@@ -90,7 +90,41 @@ describe("SolidJS renderer port", () => {
     expect(transcript[0]?.snapshot).toEqual({ value: "hello" });
   });
 
-  it("disposes effects and listeners on unmount (end-to-end lifecycle)", async () => {
+  it("removes a registration through its handle without touching others", () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", node("input"));
+    const element = renderer.container.firstElementChild as HTMLInputElement;
+
+    let kept = 0;
+    let removed = 0;
+    renderer.registerInteraction(root, "input", () => {
+      kept += 1;
+    });
+    const registration = renderer.registerInteraction(root, "input", () => {
+      removed += 1;
+    });
+
+    element.dispatchEvent(new Event("input"));
+    expect([kept, removed]).toEqual([1, 1]);
+
+    registration.remove();
+    element.dispatchEvent(new Event("input"));
+    expect([kept, removed]).toEqual([2, 1]);
+  });
+
+  it("drives an interaction through the adapter by identity", () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", node("input"));
+    expect(renderer.elementForIdentity("root-1")).toBeInstanceOf(HTMLElement);
+    let calls = 0;
+    renderer.registerInteraction(root, "click", () => {
+      calls += 1;
+    });
+    renderer.simulateInteraction("root-1", "click");
+    expect(calls).toBe(1);
+  });
+
+  it("disposes effects, listeners, and registrations on unmount", async () => {
     const runtime = createRuntime({ id: "solid" });
     const events = createEventRuntime(runtime);
     const changed = createEventClass("editor.changed", {
@@ -109,7 +143,7 @@ describe("SolidJS renderer port", () => {
 
     // emit
     let emissions = 0;
-    renderer.bindInteraction(root, "input", (snapshot) => {
+    renderer.registerInteraction(root, "input", (snapshot) => {
       emissions += 1;
       void events.dispatch(changed.id, {
         value: typeof snapshot.value === "string" ? snapshot.value : "",
@@ -122,9 +156,13 @@ describe("SolidJS renderer port", () => {
     // unmount
     renderer.removeRoot(root);
     expect(renderer.container.children.length).toBe(0);
+    expect(renderer.elementForIdentity("root-1")).toBeUndefined();
 
     // no listener remains and no reactive effect runs after disposal
     element.dispatchEvent(new Event("input"));
+    expect(emissions).toBe(1);
+    // simulate on the removed identity is a no-op
+    renderer.simulateInteraction("root-1", "input");
     expect(emissions).toBe(1);
     renderer.commit(root, "root-1", node("input", { state: "c" }));
     await Promise.resolve();

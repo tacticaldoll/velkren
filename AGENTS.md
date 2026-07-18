@@ -88,6 +88,12 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`,
 
 Never bundle unrelated changes into one commit.
 
+### Attribution
+
+Do not add AI or tool attribution to commits or pull requests. No
+`Co-Authored-By` trailer for an AI agent, no "Generated with" footer, and no
+tool signature. Commits and pull requests are authored by the human contributor.
+
 ## Definition Of Done
 
 Run these from the project root before checking off a task, syncing specs, or

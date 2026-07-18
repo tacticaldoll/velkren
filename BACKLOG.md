@@ -111,3 +111,57 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Why next**: A real multi-instance screen is the first end-to-end proof of isolation, binding, event, template, layout, rendering, and disposal semantics.
 - **Acceptance**: Two editors coexist without collisions, template changes preserve business events, and destroying one cancels only its owned work.
 - **Deferred**: Advanced components and platform integrations.
+
+## add-neutral-interaction-port
+
+- **Status**: done
+- **Outcome**: Make `RendererPort` symmetric with a declarative `registerInteraction` operation and an interaction-binding domain mapping `(RootHandle, interaction-type)` to an `EventClass` and payload projection, so adapters capture interactions their own way and only immutable snapshots cross inward. Removed the two-editor DOM-selector/`addEventListener` bypass.
+- **Dependencies**: `validate-two-editor-scenario`
+- **Why next**: The input side of the port was still DOM-coupled; neutral coordination requires the port to carry interactions inward, not just render nodes outward.
+- **Acceptance**: The fake renderer proves core input-neutrality in Node; interactions flow through the binding; ownership, duplicate-binding, and snapshot-boundary rules hold.
+- **Deferred**: A second real adapter, mixed-framework trees, plugin-based renderer selection.
+
+## fix-interaction-failure-channel
+
+- **Status**: done
+- **Outcome**: Correct the delivery-time "fails explicitly" contract, which was unsatisfiable on any real adapter (delivery runs in an event callback that swallows throws). Added an owned, observable, never-silent failure channel (`onFailure` observer; `globalThis.reportError` with a `console.error` fallback), liveness-gated, and made the fake renderer's interaction simulation faithful to real event-dispatch semantics.
+- **Dependencies**: `add-neutral-interaction-port`
+- **Why next**: The prior contract held only on the unfaithful fake; a second adapter (React) would have silently lost delivery-time failures.
+- **Acceptance**: The four delivery-time failure reasons surface through the channel with no synchronous throw into the callback; a released binding surfaces nothing; the fake no longer propagates a delivery throw.
+- **Deferred**: A richer default diagnostic sink than `reportError`/`console.error`.
+
+## add-react-adapter
+
+- **Status**: done
+- **Outcome**: Add `@velkren/react-adapter`, a React `RendererPort` via `react-dom/client` with `flushSync` for the synchronous contract, identity stamped imperatively on the mounted node, and `registerInteraction` woven into React's event system through an adapter-owned registration map read at event time (surviving commit re-renders). A parallel React validation reproduces the two-editor guarantees.
+- **Dependencies**: `fix-interaction-failure-channel`
+- **Why next**: The declarative registration shape was designed for a reconciler framework but validated only on imperative SolidJS; React is the proof that core stays renderer-independent.
+- **Acceptance**: The adapter satisfies the port with no `@velkren/core` change; two React editors isolate, emit business events through the binding, and dispose scope-locally; React stays confined to the adapter package.
+- **Deferred**: Non-DOM-named interaction types, `RenderNode`→React prop translation beyond the validation set.
+
+## extract-neutral-composition
+
+- **Status**: candidate
+- **Outcome**: Extract a renderer-agnostic component/template/event/layout composition and a common adapter test-drive surface (identity lookup, interaction simulation) so the _same_ composition can be mounted on any adapter with only the injected renderer swapped — the gold-standard neutrality proof.
+- **Dependencies**: `add-react-adapter`
+- **Why next**: The Solid and React validations are currently parallel proofs; a shared composition would prove the identical core composition runs unchanged across frameworks.
+- **Acceptance**: One composition mounts on both the SolidJS and React adapters and passes the same isolation, emission, and disposal assertions.
+- **Deferred**: Additional adapters.
+
+## add-vue-adapter
+
+- **Status**: candidate
+- **Outcome**: Add a Vue `RendererPort` adapter, exercising the port on a third framework with a template/directive event model.
+- **Dependencies**: `add-react-adapter`
+- **Why next**: A third adapter further hardens the neutrality claim and the declarative-registration shape.
+- **Acceptance**: The Vue adapter satisfies the port and passes the same validation guarantees with no `@velkren/core` change.
+- **Deferred**: Mixed-framework trees.
+
+## add-interaction-type-vocabulary
+
+- **Status**: candidate
+- **Outcome**: Replace the free `interaction-type` string with a registered, typed vocabulary (mirroring `EventClass`), so interaction types are validated and normalized across adapters.
+- **Dependencies**: `add-react-adapter`
+- **Why next**: With two adapters naming interactions, an unvalidated free string invites divergence.
+- **Acceptance**: A typed interaction vocabulary is registered and resolved; adapters translate their native event names to it.
+- **Deferred**: Non-DOM-named interaction escape hatches.

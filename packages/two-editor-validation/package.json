@@ -3,11 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b"
   },
   "dependencies": {
-    "@velkren/core": "0.1.0",
+    "@velkren/core": "0.1.0"
+  },
+  "devDependencies": {
     "@velkren/solid-adapter": "0.1.0"
   }
 }

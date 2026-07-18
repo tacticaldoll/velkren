@@ -92,12 +92,12 @@ The concrete React renderer SHALL expose adapter-local test helpers, separate fr
 
 ### Requirement: Cross-framework validation of renderer independence
 
-The adapter package SHALL include a validation that composes the minimal component, template, event, and layout set through the React adapter and asserts the same core guarantees as the two-editor scenario. Two editors MUST coexist with distinct identities, each editor's interaction MUST emit its business semantic event through the interaction-binding contract, and destroying one editor MUST release only its owned roots and registrations while the other remains functional.
+The adapter package SHALL validate renderer independence by mounting the **shared** renderer-agnostic two-editor composition (`createEditorApp` from `@velkren/two-editor-validation`) with the React renderer injected, rather than a parallel React-specific copy. Two editors MUST coexist with distinct identities, each editor's interaction MUST emit its business semantic event through the interaction-binding contract, and destroying one editor MUST release only its owned roots and registrations while the other remains functional — the same guarantees the SolidJS injection satisfies, proving the identical composition is renderer-independent.
 
-#### Scenario: Core semantics hold on React
+#### Scenario: Core semantics hold on React through the shared composition
 
-- **WHEN** the two-editor guarantees are exercised through the React adapter and one editor is destroyed
-- **THEN** identity isolation, business-event emission through the binding, and scoped disposal all hold, with the surviving editor still emitting its event
+- **WHEN** the shared two-editor composition is mounted with the React renderer injected, exercised, and one editor is destroyed
+- **THEN** identity isolation, business-event emission through the binding, and scoped disposal all hold, with the surviving editor still emitting its event — with no React-specific copy of the composition
 
 ### Requirement: Browser-environment adapter tests
 

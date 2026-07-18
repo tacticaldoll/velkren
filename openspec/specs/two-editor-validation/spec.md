@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the end-to-end validation scenario: minimal Panel, TextField, Button, and Dialog components with templates and a Stack layout, assembled into two isolated editors projected through the SolidJS adapter, proving identity isolation, template resilience, and scoped disposal compose correctly across every runtime domain.
+
 ## Requirements
+
 ### Requirement: Minimal validation components
 
 The validation package SHALL define minimal Panel, TextField, Button, and Dialog ComponentClasses with registered templates, and a Stack layout contract, composed only from `@velkren/core` and `@velkren/solid-adapter` public contracts. These are scenario fixtures and MUST NOT be exposed as a reusable public UI API.
@@ -67,4 +69,3 @@ The validation SHALL drive editor interactions through the renderer port and the
 
 - **WHEN** an editor's Button is activated and the adapter captures the interaction
 - **THEN** the runtime dispatches the editor's business semantic event through the interaction-binding contract, and the validation performs no DOM query or native listener attachment to observe it
-

@@ -3,7 +3,9 @@
 ## Purpose
 
 Define a framework-independent renderer port, managed RootHandle projection of render plans, permanent runtime-assigned root identity, managed commit repair, and an in-memory fake renderer, so a renderer surface is observable but never the source of runtime identity or ownership.
+
 ## Requirements
+
 ### Requirement: Framework-independent renderer port
 
 The system SHALL define a `RendererPort` contract that a renderer adapter implements. The port SHALL receive renderer-neutral render nodes and a runtime-assigned identity token and return an opaque adapter root, and it SHALL expose commit, identity read, removal, and declarative interaction-registration operations. The interaction-registration operation SHALL accept an adapter root, an interaction-type string, and a delivery callback that receives only an immutable snapshot, and it SHALL return a means to remove that registration. Core MUST NOT import DOM, JSX, CSS, renderer, browser `Event`, or reactive-library types, and the port MUST be usable in Node.js.
@@ -120,4 +122,3 @@ The renderer port, projection runtime, RootHandle, identity, commit repair, inte
 
 - **WHEN** the projection test suite runs in a Node.js environment
 - **THEN** port invocation, mounting, identity assignment, commit repair, interaction registration and delivery, ownership rejection, and cleanup all execute without browser globals
-

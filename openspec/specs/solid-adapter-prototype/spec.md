@@ -3,7 +3,9 @@
 ## Purpose
 
 Define an isolated SolidJS RendererPort adapter package: reactive mount/commit/unmount onto a real DOM surface, a native input snapshot boundary, semantic-event emission through core contracts, and deterministic disposal — adopting SolidJS only behind the port while @velkren/core stays free of SolidJS, DOM, and reactive dependencies.
+
 ## Requirements
+
 ### Requirement: Isolated SolidJS adapter package
 
 SolidJS SHALL be adopted only inside a dedicated adapter package that implements the framework-independent `RendererPort`. `@velkren/core` MUST NOT depend on SolidJS, import DOM or reactive types, or import anything from the adapter package, and the adapter MUST depend on `@velkren/core` only through its public contracts.
@@ -77,4 +79,3 @@ The adapter SHALL be verified in a package-scoped browser-like test environment.
 
 - **WHEN** the adapter test suite runs
 - **THEN** mount, reaction, emission, and disposal are exercised against a DOM surface in the adapter's own environment while the core suite remains Node-only
-

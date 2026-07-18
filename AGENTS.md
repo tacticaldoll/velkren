@@ -79,6 +79,10 @@ Use lowercase imperative mood and keep the summary at 72 characters or fewer.
 Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`,
 `ci`.
 
+Keep the subject free of a PR number or other serial: never write `(#123)` in a
+commit or pull-request subject. GitHub appends `(#NN)` to a squash-merge subject
+by default, so strip it when merging so landed subjects stay clean.
+
 ### Commit Flow
 
 - **Propose**: `docs(<change>): propose <summary>`

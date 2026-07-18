@@ -21,6 +21,7 @@ export default tseslint.config(
       ".claude/**",
       ".codex/**",
       "eslint.config.js",
+      "vitest.config.ts",
       "openspec/changes/archive/**",
     ],
   },

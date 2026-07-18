@@ -1,10 +1,16 @@
 import type { ManagedInstanceId } from "./identity.js";
 import type { ManagedStatus, ManagedTombstone } from "./managed-lifecycle.js";
 import type { RuntimeOwned } from "./runtime.js";
+import type { JsonObject } from "./strict-json.js";
 import type { RenderNode } from "./template-class.js";
 
 /** An opaque renderer-owned root handle. Core never inspects its shape. */
 export type AdapterRoot = unknown;
+
+/** A removable interaction registration returned by the port. */
+export interface InteractionRegistration {
+  remove(): void;
+}
 
 /**
  * The framework-independent contract a renderer adapter implements. Core drives
@@ -16,6 +22,16 @@ export interface RendererPort {
   commit(root: AdapterRoot, identity: string, node: RenderNode): void;
   readIdentity(root: AdapterRoot): string | undefined;
   removeRoot(root: AdapterRoot): void;
+  /**
+   * Declare interest in a named interaction type on an adapter root. The adapter
+   * wires capture however its framework prefers and invokes `deliver` with an
+   * immutable snapshot; no DOM node or native event ever crosses inward.
+   */
+  registerInteraction(
+    root: AdapterRoot,
+    type: string,
+    deliver: (snapshot: JsonObject) => void,
+  ): InteractionRegistration;
 }
 
 /** The permanent attribute key under which a root's identity is projected. */
@@ -60,6 +76,7 @@ const PORT_OPERATIONS = [
   "commit",
   "readIdentity",
   "removeRoot",
+  "registerInteraction",
 ] as const;
 
 /** Validate that a value implements every RendererPort operation. */

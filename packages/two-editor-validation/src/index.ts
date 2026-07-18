@@ -3,15 +3,16 @@ import {
   createComponentRuntime,
   createEventClass,
   createEventRuntime,
+  createInteractionBinding,
   createLayoutRuntime,
   createProjectionRuntime,
   createRuntime,
   createTemplateClass,
   createTemplateRuntime,
   eventField,
-  PROJECTION_IDENTITY_ATTRIBUTE,
   type ComponentInstance,
   type EventClass,
+  type InteractionBinding,
   type LayoutContract,
   type Projection,
   type Runtime,
@@ -19,10 +20,10 @@ import {
   type TemplateClass,
   type TemplateNode,
 } from "@velkren/core";
-import {
-  createSolidRenderer,
-  snapshotNativeEvent,
-} from "@velkren/solid-adapter";
+import { createSolidRenderer } from "@velkren/solid-adapter";
+
+/** The interaction type a Button reports; captured through the adapter. */
+const BUTTON_INTERACTION = "click";
 
 /** One assembled editor: a Panel with a TextField and a Button. */
 export interface Editor {
@@ -34,7 +35,7 @@ export interface Editor {
   readonly projection: Projection;
   readonly element: HTMLElement;
   retemplate(template: TemplateClass): Promise<void>;
-  activate(): void;
+  activate(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -99,22 +100,38 @@ export function createEditorApp(): EditorApp {
   const runtime = createRuntime({ id: "validation" });
   const components = createComponentRuntime(runtime);
   const templates = createTemplateRuntime(runtime);
-  const events = createEventRuntime(runtime);
-  const renderer = createSolidRenderer();
-  const projection = createProjectionRuntime(runtime, renderer);
-  const layout = createLayoutRuntime(runtime);
-
-  for (const componentClass of editorComponentClasses) {
-    components.register(componentClass);
-  }
 
   const submitted = createEventClass("editor.submitted", {
     editor: eventField((value) => typeof value === "string"),
   });
-  events.register(submitted);
-  templates.register(panelTemplate("1"));
 
   const emissions: string[] = [];
+  // Observe the business event through the event domain's own trace, never a
+  // DOM listener attached by this validation.
+  const events = createEventRuntime(runtime, {
+    traceSink(record) {
+      if (record.classId === submitted.id && record.phase === "completed") {
+        const editor = record.snapshot?.editor;
+        if (typeof editor === "string") emissions.push(editor);
+      }
+    },
+  });
+  events.register(submitted);
+
+  const renderer = createSolidRenderer();
+  const projection = createProjectionRuntime(runtime, renderer);
+  const layout = createLayoutRuntime(runtime);
+  const interactions: InteractionBinding = createInteractionBinding(
+    runtime,
+    projection,
+    events,
+  );
+
+  for (const componentClass of editorComponentClasses) {
+    components.register(componentClass);
+  }
+  templates.register(panelTemplate("1"));
+
   const layoutRuns: string[] = [];
 
   const stackContract = (id: string): LayoutContract => ({
@@ -148,18 +165,15 @@ export function createEditorApp(): EditorApp {
     const root = projected.roots.main;
     if (root === undefined) throw new Error("panel root was not projected");
 
-    const element = renderer.container.querySelector<HTMLElement>(
-      `[${PROJECTION_IDENTITY_ATTRIBUTE}="${root.identity}"]`,
-    );
-    if (element === null) throw new Error("projected root element not found");
+    const element = renderer.elementForIdentity(root.identity);
+    if (element === undefined)
+      throw new Error("projected root element missing");
 
-    const listener: EventListener = (event) => {
-      // Snapshot at the boundary; dispatch a runtime semantic event.
-      snapshotNativeEvent(event);
-      emissions.push(id);
-      void events.dispatch(submitted.id, { editor: id });
-    };
-    element.addEventListener("click", listener);
+    // Route the Button interaction through the neutral port and binding: no
+    // data-velkren-root selector, no application-attached native listener.
+    interactions.bind(root, BUTTON_INTERACTION, submitted, () => ({
+      editor: id,
+    }));
 
     layout.register(root, stackContract(id));
     layout.invalidate(root);
@@ -178,15 +192,16 @@ export function createEditorApp(): EditorApp {
         await templates.replace(template);
         const plan = templates.resolvePlan(panel);
         const next = plan.roots.main;
+        // Commit to the same root; the interaction binding survives untouched.
         if (next !== undefined) projection.commit(root, next);
       },
-      activate() {
-        element.dispatchEvent(new Event("click"));
+      async activate() {
+        renderer.simulateInteraction(root.identity, BUTTON_INTERACTION);
+        await interactions.settled();
       },
       async dispose() {
         if (disposed) return;
         disposed = true;
-        element.removeEventListener("click", listener);
         await panel.release();
         await projected.release();
         layout.flush();

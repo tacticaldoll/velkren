@@ -2,6 +2,7 @@ import { createRenderEffect, createRoot, createSignal } from "solid-js";
 import {
   PROJECTION_IDENTITY_ATTRIBUTE,
   type AdapterRoot,
+  type InteractionRegistration,
   type JsonObject,
   type JsonValue,
   type RenderNode,
@@ -15,15 +16,14 @@ import {
 export interface SolidRenderer extends RendererPort {
   /** The DOM element under which projected roots are mounted. */
   readonly container: HTMLElement;
+  /** The projected root element carrying `identity`, or undefined if removed. */
+  elementForIdentity(identity: string): HTMLElement | undefined;
   /**
-   * Attach a native interaction listener to a root. The handler receives an
-   * immutable snapshot; the live DOM node and native event never cross out.
+   * Drive a native interaction on the root carrying `identity` through the
+   * adapter's own event layer, exercising every registered capture. A no-op if
+   * the root was removed. This is a validation/dev affordance, not a port op.
    */
-  bindInteraction(
-    root: AdapterRoot,
-    type: string,
-    handler: (snapshot: JsonObject) => void,
-  ): void;
+  simulateInteraction(identity: string, type: string): void;
 }
 
 interface SolidAdapterRoot {
@@ -38,6 +38,7 @@ interface SolidAdapterRoot {
 /** Create an in-DOM SolidJS renderer implementing the core RendererPort. */
 export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
   const host = container ?? document.createElement("div");
+  const rootsByIdentity = new Map<string, SolidAdapterRoot>();
 
   const asRoot = (root: AdapterRoot): SolidAdapterRoot =>
     root as SolidAdapterRoot;
@@ -72,6 +73,7 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
         };
       });
       host.appendChild(root.element);
+      rootsByIdentity.set(identity, root);
       return root;
     },
 
@@ -92,21 +94,43 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
       const adapterRoot = asRoot(root);
       if (adapterRoot.disposed) return;
       adapterRoot.disposed = true;
+      rootsByIdentity.delete(adapterRoot.identity);
       adapterRoot.dispose();
       adapterRoot.element.remove();
     },
 
-    bindInteraction(
+    registerInteraction(
       root: AdapterRoot,
       type: string,
-      handler: (snapshot: JsonObject) => void,
-    ): void {
+      deliver: (snapshot: JsonObject) => void,
+    ): InteractionRegistration {
       const adapterRoot = asRoot(root);
       const listener: EventListener = (event) => {
-        handler(snapshotNativeEvent(event));
+        // Snapshot at the adapter boundary; the live node and native event stay
+        // in this package.
+        deliver(snapshotNativeEvent(event));
       };
+      const record = { type, listener };
       adapterRoot.element.addEventListener(type, listener);
-      adapterRoot.listeners.push({ type, listener });
+      adapterRoot.listeners.push(record);
+      return {
+        remove(): void {
+          const index = adapterRoot.listeners.indexOf(record);
+          if (index === -1) return;
+          adapterRoot.listeners.splice(index, 1);
+          adapterRoot.element.removeEventListener(type, listener);
+        },
+      };
+    },
+
+    elementForIdentity(identity: string): HTMLElement | undefined {
+      return rootsByIdentity.get(identity)?.element;
+    },
+
+    simulateInteraction(identity: string, type: string): void {
+      const adapterRoot = rootsByIdentity.get(identity);
+      if (adapterRoot === undefined || adapterRoot.disposed) return;
+      adapterRoot.element.dispatchEvent(new Event(type, { bubbles: true }));
     },
   };
 

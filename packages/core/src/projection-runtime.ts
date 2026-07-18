@@ -1,16 +1,22 @@
 import type { ComponentInstance } from "./component-class.js";
 import { createManagedInstanceId, type ManagedInstanceId } from "./identity.js";
-import { createManagedResource, ManagedStatus } from "./managed-lifecycle.js";
+import {
+  createManagedResource,
+  ManagedStatus,
+  type ManagedCleanup,
+} from "./managed-lifecycle.js";
 import { ManagedReleaseError } from "./runtime-errors.js";
 import type { Runtime } from "./runtime.js";
 import {
   assertRendererPort,
   ProjectionError,
   type AdapterRoot,
+  type InteractionRegistration,
   type Projection,
   type RendererPort,
   type RootHandle,
 } from "./renderer-port.js";
+import type { JsonObject } from "./strict-json.js";
 import type { RenderNode, RenderPlan } from "./template-class.js";
 
 /** The projection domain: mounts render plans onto one renderer surface. */
@@ -20,15 +26,48 @@ export interface ProjectionRuntime {
   commit(root: RootHandle, node: RenderNode): void;
 }
 
+/**
+ * A controlled, package-internal bridge the interaction-binding domain uses to
+ * reach an owned root's adapter root and port without `rootStates` leaking. It
+ * is intentionally not part of the public barrel.
+ */
+export interface ProjectionInteractionAccessor {
+  registerInteraction(
+    root: RootHandle,
+    type: string,
+    deliver: (snapshot: JsonObject) => void,
+    onRelease: () => void,
+  ): InteractionRegistration;
+}
+
 interface RootState {
   readonly port: RendererPort;
   readonly adapterRoot: AdapterRoot;
   readonly identity: string;
   readonly rootName: string;
+  readonly addCleanup: (cleanup: ManagedCleanup) => void;
 }
 
 const rootStates = new WeakMap<RootHandle, RootState>();
 const runtimeRootSequences = new WeakMap<Runtime, number>();
+const projectionAccessors = new WeakMap<
+  ProjectionRuntime,
+  ProjectionInteractionAccessor
+>();
+
+/**
+ * Resolve the controlled interaction accessor for a projection runtime. Used by
+ * the interaction-binding domain; not exported from the public barrel.
+ */
+export function projectionInteractionAccessor(
+  projection: ProjectionRuntime,
+): ProjectionInteractionAccessor {
+  const accessor = projectionAccessors.get(projection);
+  if (accessor === undefined) {
+    throw new TypeError("ProjectionRuntime was not created by Velkren.");
+  }
+  return accessor;
+}
 
 /** Create a projection domain over a Runtime and a renderer port. */
 export function createProjectionRuntime(
@@ -43,7 +82,12 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
   constructor(
     readonly runtime: Runtime,
     readonly renderer: RendererPort,
-  ) {}
+  ) {
+    projectionAccessors.set(this, {
+      registerInteraction: (root, type, deliver, onRelease) =>
+        this.#registerInteraction(root, type, deliver, onRelease),
+    });
+  }
 
   async mount(
     instance: ComponentInstance,
@@ -111,6 +155,7 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
       adapterRoot,
       identity,
       rootName,
+      addCleanup: (cleanup) => controller.addCleanup(cleanup),
     });
     controller.addCleanup(() => this.renderer.removeRoot(adapterRoot));
     controller.addCleanup(() => {
@@ -121,6 +166,29 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
       identity: { enumerable: true, value: identity },
     });
     return handle;
+  }
+
+  #registerInteraction(
+    root: RootHandle,
+    type: string,
+    deliver: (snapshot: JsonObject) => void,
+    onRelease: () => void,
+  ): InteractionRegistration {
+    this.runtime.assertOwns(root);
+    root.assertActive("register an interaction");
+    const state = this.#stateOf(root);
+    const registration = state.port.registerInteraction(
+      state.adapterRoot,
+      type,
+      deliver,
+    );
+    // Bind removal to the root lifecycle: releasing the root unwires the port
+    // registration and marks the binding dead.
+    state.addCleanup(() => {
+      onRelease();
+      registration.remove();
+    });
+    return registration;
   }
 
   #stateOf(root: RootHandle): RootState {

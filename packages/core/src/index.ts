@@ -192,6 +192,7 @@ export {
   ProjectionError,
   PROJECTION_IDENTITY_ATTRIBUTE,
   type AdapterRoot,
+  type InteractionRegistration,
   type Projection,
   type RendererPort,
   type RootHandle,
@@ -200,6 +201,17 @@ export {
   createProjectionRuntime,
   type ProjectionRuntime,
 } from "./projection-runtime.js";
+export {
+  createInteractionBinding,
+  DuplicateInteractionBindingError,
+  DuplicateInteractionRuntimeError,
+  ForeignRootBindingError,
+  InvalidInteractionPayloadError,
+  NonObjectSnapshotError,
+  type InteractionBinding,
+  type InteractionBindingHandle,
+  type InteractionProjection,
+} from "./interaction-binding.js";
 export {
   createFakeRenderer,
   type FakeRenderer,

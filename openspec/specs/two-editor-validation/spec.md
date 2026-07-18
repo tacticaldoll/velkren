@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the end-to-end validation scenario: minimal Panel, TextField, Button, and Dialog components with templates and a Stack layout, assembled into two isolated editors projected through the SolidJS adapter, proving identity isolation, template resilience, and scoped disposal compose correctly across every runtime domain.
-
 ## Requirements
-
 ### Requirement: Minimal validation components
 
 The validation package SHALL define minimal Panel, TextField, Button, and Dialog ComponentClasses with registered templates, and a Stack layout contract, composed only from `@velkren/core` and `@velkren/solid-adapter` public contracts. These are scenario fixtures and MUST NOT be exposed as a reusable public UI API.
@@ -31,12 +29,12 @@ Two editor instances — each a Panel containing a TextField and a Button — SH
 
 ### Requirement: Template change preserves business events
 
-Replacing an editor's template MUST preserve its business semantic-event wiring. After re-templating, the editor's Button MUST still emit its business semantic event through the runtime's event contracts, and the new template MUST render through the adapter.
+Replacing an editor's template MUST preserve its business semantic-event wiring through the interaction-binding contract. Re-templating commits a new plan to the same root, so the root's interaction binding MUST remain intact and the Button MUST still emit its business semantic event through the runtime's event contracts, while the new template renders through the adapter.
 
 #### Scenario: Re-template keeps the business event
 
-- **WHEN** an editor's template is replaced and its Button is then activated
-- **THEN** the runtime observes the same business semantic event as before the replacement, and the surface reflects the new template
+- **WHEN** an editor's template is replaced by committing a new plan to its root, and its Button is then activated
+- **THEN** the runtime observes the same business semantic event as before the replacement through the unchanged binding, and the surface reflects the new template
 
 ### Requirement: Scoped disposal cancels only owned work
 
@@ -60,3 +58,13 @@ The scenario SHALL run in a package-scoped browser-like environment, mounting th
 
 - **WHEN** the two-editor scenario mounts, reacts, emits business events, re-templates, and disposes one editor
 - **THEN** every step completes against a DOM surface with the documented isolation, template-resilience, and scoped-disposal guarantees observed
+
+### Requirement: Interaction routed through the neutral port
+
+The validation SHALL drive editor interactions through the renderer port and the interaction-binding contract, not through application-level DOM selection or a native listener attached to a queried element. Each editor's Button interaction MUST be bound to its business EventClass so that a captured interaction dispatches the semantic event via the runtime's own contracts, and the validation MUST NOT use `data-velkren-root` selectors or `addEventListener` for coordination.
+
+#### Scenario: Business event flows through binding
+
+- **WHEN** an editor's Button is activated and the adapter captures the interaction
+- **THEN** the runtime dispatches the editor's business semantic event through the interaction-binding contract, and the validation performs no DOM query or native listener attachment to observe it
+

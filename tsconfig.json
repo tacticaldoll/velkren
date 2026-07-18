@@ -8,6 +8,9 @@
       "path": "./packages/solid-adapter"
     },
     {
+      "path": "./packages/react-adapter"
+    },
+    {
       "path": "./packages/two-editor-validation"
     }
   ]

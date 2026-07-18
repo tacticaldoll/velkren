@@ -1,8 +1,11 @@
 # interaction-binding Specification
 
 ## Purpose
+
 TBD - created by archiving change add-neutral-interaction-port. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Declarative interaction registration through the port
 
 The system SHALL let core register interest in a named interaction type on an owned root and supply a delivery callback that receives only an immutable snapshot. Core SHALL resolve the owned `RootHandle` to its opaque adapter root and invoke the `RendererPort` interaction-registration operation on that adapter root; the port operation itself exchanges only the adapter root, an interaction-type string, and the delivery callback and never sees a `RootHandle`. Core MUST NOT learn how the adapter captures the interaction, and the operation MUST be expressible without any DOM, browser `Event`, JSX, or reactive-library type so it is usable in Node.js.
@@ -86,4 +89,3 @@ The public core entry SHALL expose the interaction-binding contract and its erro
 
 - **WHEN** a consumer imports `@velkren/core` through its public export map
 - **THEN** the interaction-binding contract and its errors are available while binding internals and generic kernels remain unavailable
-

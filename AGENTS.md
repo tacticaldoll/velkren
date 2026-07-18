@@ -79,6 +79,10 @@ Use lowercase imperative mood and keep the summary at 72 characters or fewer.
 Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`,
 `ci`.
 
+Keep the subject free of a PR number or other serial: never write `(#123)` in a
+commit or pull-request subject. GitHub appends `(#NN)` to a squash-merge subject
+by default, so strip it when merging so landed subjects stay clean.
+
 ### Commit Flow
 
 - **Propose**: `docs(<change>): propose <summary>`
@@ -87,6 +91,28 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`,
 - **Archive**: `chore(openspec): archive <change>`
 
 Never bundle unrelated changes into one commit.
+
+### Attribution
+
+Do not add AI or tool attribution to commits or pull requests. No
+`Co-Authored-By` trailer for an AI assistant and no "Generated with" lines.
+Commits are authored under the human contributor only.
+
+## Integration
+
+Every change lands through a pull request; no direct pushes to `main`. Merge a
+pull request by **squash-merge** so each change is one commit on `main`, and
+strip GitHub's auto-appended `(#NN)` from the squash subject before merging so
+history reads as a clean, linear sequence of Conventional Commits.
+
+## Review
+
+Before committing the output of a **propose** or **apply** step, run an
+adversarial review of that output — an independent, refutation-minded pass over
+the artifacts or the diff, checked against the invariants in `PROJECT.md` and
+the accepted OpenSpec requirements — and address its findings. Do not commit
+either phase's output unreviewed. The **sync** and **archive** steps move
+already-reviewed content and do not require a further adversarial pass.
 
 ## Definition Of Done
 

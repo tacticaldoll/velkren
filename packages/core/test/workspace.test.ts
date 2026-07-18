@@ -23,6 +23,14 @@ describe("@velkren/core workspace", () => {
     expect(core).toHaveProperty("PluginLifecyclePhase");
     expect(core).toHaveProperty("PluginInstallationError");
     expect(core).toHaveProperty("PluginUninstallDependencyError");
+    expect(core).toHaveProperty("createCapabilityRuntime");
+    expect(core).toHaveProperty("isCapability");
+    expect(core).toHaveProperty("DuplicateCapabilityRuntimeError");
+    expect(core).toHaveProperty("CapabilityAttenuationError");
+    expect(core).toHaveProperty("CapabilityPolicyError");
+    expect(core).toHaveProperty("CapabilityRevokedError");
+    expect(core).toHaveProperty("CapabilityAuthorityError");
+    expect(core).toHaveProperty("InvalidCapabilityError");
   });
 
   it("does not expose internal registration or identity constructors", () => {
@@ -57,5 +65,7 @@ describe("@velkren/core workspace", () => {
     expect(core).not.toHaveProperty("PluginStagingLimits");
     expect(core).not.toHaveProperty("allocatePluginInstallationId");
     expect(core).not.toHaveProperty("RegistrationAdmissionError");
+    expect(core).not.toHaveProperty("DefaultCapabilityRuntime");
+    expect(core).not.toHaveProperty("CapabilityNode");
   });
 });

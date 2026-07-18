@@ -7,6 +7,6 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "lib": ["ES2022", "DOM"]
   },
-  "references": [{ "path": "../core" }, { "path": "../solid-adapter" }],
+  "references": [{ "path": "../core" }],
   "include": ["src/**/*.ts"]
 }

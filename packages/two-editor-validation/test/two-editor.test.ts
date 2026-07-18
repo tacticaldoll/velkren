@@ -2,26 +2,30 @@
 import { describe, expect, it } from "vitest";
 
 import { ScopeResolutionError } from "@velkren/core";
+import { createSolidRenderer } from "@velkren/solid-adapter";
 
 import { createEditorApp } from "../src/index.js";
 
 describe("two-editor validation", () => {
   it("keeps two editors isolated in identity, references, and scope", async () => {
-    const app = createEditorApp();
+    const renderer = createSolidRenderer();
+    const app = createEditorApp(renderer);
     const one = await app.createEditor("one");
     const two = await app.createEditor("two");
 
     expect(one.panel.id).not.toBe(two.panel.id);
     expect(one.field.id).not.toBe(two.field.id);
+    expect(one.root.identity).not.toBe(two.root.identity);
     expect(one.scope.resolve("field")).not.toBe(two.scope.resolve("field"));
     expect(one.scope.resolve("field").deref()).toBe(one.field);
     expect(one.scope.resolve("field").deref()).not.toBe(two.field);
-    expect(app.container.children.length).toBe(2);
+    expect(renderer.container.children.length).toBe(2);
     expect(app.layoutRuns.sort()).toEqual(["one", "two"]);
   });
 
   it("flows the business event through the binding, isolated per editor", async () => {
-    const app = createEditorApp();
+    const renderer = createSolidRenderer();
+    const app = createEditorApp(renderer);
     const one = await app.createEditor("one");
     await app.createEditor("two");
 
@@ -32,11 +36,15 @@ describe("two-editor validation", () => {
   });
 
   it("preserves the business event after a template change", async () => {
-    const app = createEditorApp();
+    const renderer = createSolidRenderer();
+    const app = createEditorApp(renderer);
     const one = await app.createEditor("one");
 
     await one.retemplate(app.altTemplate());
-    expect(one.element.getAttribute("version")).toBe("2");
+    const element = renderer.elementForIdentity(
+      one.root.identity,
+    ) as HTMLElement;
+    expect(element.getAttribute("version")).toBe("2");
 
     // Same root, unchanged binding: the business event still fires.
     await one.activate();
@@ -44,7 +52,8 @@ describe("two-editor validation", () => {
   });
 
   it("destroys one editor while the other stays functional", async () => {
-    const app = createEditorApp();
+    const renderer = createSolidRenderer();
+    const app = createEditorApp(renderer);
     const one = await app.createEditor("one");
     const two = await app.createEditor("two");
 
@@ -54,8 +63,11 @@ describe("two-editor validation", () => {
     expect(one.field.status).toBe("released");
     expect(one.button.status).toBe("released");
     expect(one.projection.roots.main?.status).toBe("released");
-    expect(app.container.children.length).toBe(1);
-    expect(app.container.contains(two.element)).toBe(true);
+    expect(renderer.container.children.length).toBe(1);
+    const twoElement = renderer.elementForIdentity(
+      two.root.identity,
+    ) as HTMLElement;
+    expect(renderer.container.contains(twoElement)).toBe(true);
 
     // Surviving editor still reacts and emits.
     await two.activate();
@@ -64,14 +76,16 @@ describe("two-editor validation", () => {
   });
 
   it("tears down the destroyed editor's DOM and registration without leaks", async () => {
-    const app = createEditorApp();
+    const renderer = createSolidRenderer();
+    const app = createEditorApp(renderer);
     const one = await app.createEditor("one");
     await app.createEditor("two");
 
+    const oneIdentity = one.root.identity;
     await one.dispose();
 
     // The released editor's root is gone from the surface.
-    expect(app.container.contains(one.element)).toBe(false);
+    expect(renderer.elementForIdentity(oneIdentity)).toBeUndefined();
     // Its interaction registration is gone: activating again emits nothing.
     await one.activate();
     expect(app.emissions).toEqual([]);

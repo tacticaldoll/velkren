@@ -15,15 +15,28 @@ import {
   type InteractionBinding,
   type LayoutContract,
   type Projection,
+  type RendererPort,
+  type RootHandle,
   type Runtime,
   type Scope,
   type TemplateClass,
   type TemplateNode,
 } from "@velkren/core";
-import { createSolidRenderer } from "@velkren/solid-adapter";
 
 /** The interaction type a Button reports; captured through the adapter. */
 const BUTTON_INTERACTION = "click";
+
+/**
+ * The DOM-neutral test-drive surface the composition needs from a renderer: the
+ * core `RendererPort` plus the two non-port validation affordances every adapter
+ * already exposes. `elementForIdentity` returns an opaque value so this fixture
+ * imports no DOM type; presence is checked with `!== undefined`. Any renderer
+ * (Solid, React, ...) satisfies it structurally without importing it.
+ */
+export interface RendererTestHarness extends RendererPort {
+  simulateInteraction(identity: string, type: string): void;
+  elementForIdentity(identity: string): unknown;
+}
 
 /** One assembled editor: a Panel with a TextField and a Button. */
 export interface Editor {
@@ -33,7 +46,8 @@ export interface Editor {
   readonly button: ComponentInstance;
   readonly scope: Scope;
   readonly projection: Projection;
-  readonly element: HTMLElement;
+  /** The composition's already-narrowed main root: a DOM-free core handle. */
+  readonly root: RootHandle;
   retemplate(template: TemplateClass): Promise<void>;
   activate(): Promise<void>;
   dispose(): Promise<void>;
@@ -42,7 +56,6 @@ export interface Editor {
 /** The two-editor validation application composing every runtime domain. */
 export interface EditorApp {
   readonly runtime: Runtime;
-  readonly container: HTMLElement;
   readonly submitted: EventClass;
   readonly emissions: string[];
   readonly layoutRuns: string[];
@@ -95,8 +108,8 @@ function panelTemplate(version: string): TemplateClass {
   });
 }
 
-/** Build a fresh two-editor validation application. */
-export function createEditorApp(): EditorApp {
+/** Build a fresh two-editor validation application on the injected renderer. */
+export function createEditorApp(renderer: RendererTestHarness): EditorApp {
   const runtime = createRuntime({ id: "validation" });
   const components = createComponentRuntime(runtime);
   const templates = createTemplateRuntime(runtime);
@@ -118,7 +131,6 @@ export function createEditorApp(): EditorApp {
   });
   events.register(submitted);
 
-  const renderer = createSolidRenderer();
   const projection = createProjectionRuntime(runtime, renderer);
   const layout = createLayoutRuntime(runtime);
   const interactions: InteractionBinding = createInteractionBinding(
@@ -165,8 +177,8 @@ export function createEditorApp(): EditorApp {
     const root = projected.roots.main;
     if (root === undefined) throw new Error("panel root was not projected");
 
-    const element = renderer.elementForIdentity(root.identity);
-    if (element === undefined)
+    // Presence only, through the neutral surface: never a DOM type.
+    if (renderer.elementForIdentity(root.identity) === undefined)
       throw new Error("projected root element missing");
 
     // Route the Button interaction through the neutral port and binding: no
@@ -187,7 +199,7 @@ export function createEditorApp(): EditorApp {
       button,
       scope,
       projection: projected,
-      element,
+      root,
       async retemplate(template: TemplateClass) {
         await templates.replace(template);
         const plan = templates.resolvePlan(panel);
@@ -211,7 +223,6 @@ export function createEditorApp(): EditorApp {
 
   return {
     runtime,
-    container: renderer.container,
     submitted,
     emissions,
     layoutRuns,

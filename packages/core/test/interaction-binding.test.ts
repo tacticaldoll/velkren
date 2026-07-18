@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createComponentClass } from "../src/component-class.js";
 import { createComponentRuntime } from "../src/component-runtime.js";
@@ -12,6 +12,7 @@ import {
   ForeignRootBindingError,
   InvalidInteractionPayloadError,
   NonObjectSnapshotError,
+  type InteractionFailure,
 } from "../src/interaction-binding.js";
 import { createProjectionRuntime } from "../src/projection-runtime.js";
 import {
@@ -25,8 +26,20 @@ import type { JsonObject } from "../src/strict-json.js";
 import { createTemplateClass } from "../src/template-class.js";
 import { createTemplateRuntime } from "../src/template-runtime.js";
 import * as publicApi from "../src/index.js";
+import { EventDispatchError } from "../src/event-dispatch.js";
 
-function harness(id = "app") {
+// `console` is not declared in the core ES2022 test lib; reach the host console
+// through globalThis (mirroring the binding's reporter of last resort) so spies
+// target the exact object the implementation reports through.
+const hostConsole = (globalThis as { console: { error(value: unknown): void } })
+  .console;
+
+interface HarnessOptions {
+  /** When true, register an `onFailure` observer collecting into `failures`. */
+  readonly observeFailures?: boolean;
+}
+
+function harness(id = "app", options: HarnessOptions = {}) {
   const runtime = createRuntime({ id });
   const components = createComponentRuntime(runtime);
   const templates = createTemplateRuntime(runtime);
@@ -44,7 +57,15 @@ function harness(id = "app") {
     at: eventField((value) => typeof value === "string"),
   });
   events.register(activated);
-  const interactions = createInteractionBinding(runtime, projection, events);
+  const failures: InteractionFailure[] = [];
+  const interactions = createInteractionBinding(
+    runtime,
+    projection,
+    events,
+    options.observeFailures === true
+      ? { onFailure: (failure) => failures.push(failure) }
+      : {},
+  );
   return {
     runtime,
     components,
@@ -55,8 +76,13 @@ function harness(id = "app") {
     activated,
     interactions,
     dispatched,
+    failures,
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function mountPanel(
   h: ReturnType<typeof harness>,
@@ -160,49 +186,55 @@ describe("binding ownership and duplication", () => {
 });
 
 describe("snapshot and payload boundary", () => {
-  it("rejects a non-object snapshot at the boundary with no dispatch", async () => {
-    const h = harness();
+  it("surfaces a non-object primitive/array snapshot as one typed failure with no dispatch", async () => {
+    const h = harness("app", { observeFailures: true });
     const { root, fakeRoot } = await mountPanel(h);
     h.interactions.bind(root, "activate", h.activated, () => ({ at: "x" }));
 
-    expect(() =>
-      h.renderer.simulateInteraction(
-        fakeRoot,
-        "activate",
-        42 as unknown as JsonObject,
-      ),
-    ).toThrow(NonObjectSnapshotError);
-    expect(() =>
-      h.renderer.simulateInteraction(
-        fakeRoot,
-        "activate",
-        [] as unknown as JsonObject,
-      ),
-    ).toThrow(NonObjectSnapshotError);
-
+    // The fake now swallows the delivery throw, so the failure is observed only
+    // through the owned channel — never by a propagated throw.
+    h.renderer.simulateInteraction(
+      fakeRoot,
+      "activate",
+      42 as unknown as JsonObject,
+    );
+    h.renderer.simulateInteraction(
+      fakeRoot,
+      "activate",
+      [] as unknown as JsonObject,
+    );
     await h.interactions.settled();
+
+    expect(h.failures).toHaveLength(2);
+    for (const failure of h.failures) {
+      expect(failure.reason).toBe("non-object-snapshot");
+      expect(failure.type).toBe("activate");
+      expect(failure.root).toBe(root);
+      expect(failure.cause).toBeInstanceOf(NonObjectSnapshotError);
+    }
     expect(h.dispatched).toEqual([]);
   });
 
-  it("rejects a plain object hiding a nested non-JSON reference with no dispatch", async () => {
-    const h = harness();
+  it("surfaces a nested non-JSON reference as one non-object-snapshot failure with no dispatch", async () => {
+    const h = harness("app", { observeFailures: true });
     const { root, fakeRoot } = await mountPanel(h);
     h.interactions.bind(root, "activate", h.activated, () => ({ at: "x" }));
 
     // A live reference smuggled inside an otherwise plain object must not cross
-    // the boundary — this is the exact leak the snapshot boundary exists to stop.
-    expect(() =>
-      h.renderer.simulateInteraction(fakeRoot, "activate", {
-        handler: () => undefined,
-      } as unknown as JsonObject),
-    ).toThrow(NonObjectSnapshotError);
-    expect(() =>
-      h.renderer.simulateInteraction(fakeRoot, "activate", {
-        node: new (class LiveNode {})(),
-      } as unknown as JsonObject),
-    ).toThrow(NonObjectSnapshotError);
-
+    // the boundary — the distinct createJsonSnapshot sub-path of the same reason.
+    h.renderer.simulateInteraction(fakeRoot, "activate", {
+      handler: () => undefined,
+    } as unknown as JsonObject);
+    h.renderer.simulateInteraction(fakeRoot, "activate", {
+      node: new (class LiveNode {})(),
+    } as unknown as JsonObject);
     await h.interactions.settled();
+
+    expect(h.failures).toHaveLength(2);
+    for (const failure of h.failures) {
+      expect(failure.reason).toBe("non-object-snapshot");
+      expect(failure.cause).toBeInstanceOf(NonObjectSnapshotError);
+    }
     expect(h.dispatched).toEqual([]);
   });
 
@@ -228,17 +260,198 @@ describe("snapshot and payload boundary", () => {
     expect(Object.isFrozen(snap.list)).toBe(true);
   });
 
-  it("rejects a payload the EventClass schema rejects with no partial event", async () => {
-    const h = harness();
+  it("surfaces a schema-invalid payload as one invalid-payload failure with no partial event", async () => {
+    const h = harness("app", { observeFailures: true });
     const { root, fakeRoot } = await mountPanel(h);
     h.interactions.bind(root, "activate", h.activated, () => ({ at: 123 }));
 
-    expect(() =>
-      h.renderer.simulateInteraction(fakeRoot, "activate", { type: "click" }),
-    ).toThrow(InvalidInteractionPayloadError);
-
+    h.renderer.simulateInteraction(fakeRoot, "activate", { type: "click" });
     await h.interactions.settled();
+
+    expect(h.failures).toHaveLength(1);
+    expect(h.failures[0]?.reason).toBe("invalid-payload");
+    expect(h.failures[0]?.cause).toBeInstanceOf(InvalidInteractionPayloadError);
     expect(h.dispatched).toEqual([]);
+  });
+
+  it("surfaces a throwing projection as one projection-error failure with no dispatch", async () => {
+    const h = harness("app", { observeFailures: true });
+    const { root, fakeRoot } = await mountPanel(h);
+    const boom = new Error("projection blew up");
+    h.interactions.bind(root, "activate", h.activated, () => {
+      throw boom;
+    });
+
+    h.renderer.simulateInteraction(fakeRoot, "activate", { type: "click" });
+    await h.interactions.settled();
+
+    expect(h.failures).toHaveLength(1);
+    expect(h.failures[0]?.reason).toBe("projection-error");
+    expect(h.failures[0]?.cause).toBe(boom);
+    expect(h.dispatched).toEqual([]);
+  });
+
+  it("surfaces a rejected dispatch as one dispatch-error failure with no dispatch", async () => {
+    const h = harness("app", { observeFailures: true });
+    const { root, fakeRoot } = await mountPanel(h);
+    // A valid EventClass never registered with the event runtime: the payload
+    // passes the class's own schema, but dispatch rejects on resolution.
+    const unregistered = createEventClass("editor.unregistered", {
+      at: eventField((value) => typeof value === "string"),
+    });
+    h.interactions.bind(root, "activate", unregistered, () => ({ at: "x" }));
+
+    h.renderer.simulateInteraction(fakeRoot, "activate", { type: "click" });
+    await h.interactions.settled();
+
+    expect(h.failures).toHaveLength(1);
+    expect(h.failures[0]?.reason).toBe("dispatch-error");
+    expect(h.failures[0]?.cause).toBeInstanceOf(EventDispatchError);
+    expect(h.dispatched).toEqual([]);
+  });
+});
+
+/**
+ * Run `fn` with the global `reportError` removed, restoring the original
+ * afterward. Proves the never-silent default host-independently: on a host
+ * lacking `globalThis.reportError` the reporter of last resort is `console.error`.
+ */
+async function withoutGlobalReportError(
+  fn: () => Promise<void>,
+): Promise<void> {
+  const globalRef = globalThis as { reportError?: (error: unknown) => void };
+  const saved = globalRef.reportError;
+  const hadOwn = Object.prototype.hasOwnProperty.call(
+    globalThis,
+    "reportError",
+  );
+  delete globalRef.reportError;
+  try {
+    await fn();
+  } finally {
+    if (hadOwn && saved !== undefined) globalRef.reportError = saved;
+  }
+}
+
+describe("never-silent failure default", () => {
+  it("falls back to console.error when the host lacks globalThis.reportError", async () => {
+    await withoutGlobalReportError(async () => {
+      const consoleError = vi
+        .spyOn(hostConsole, "error")
+        .mockImplementation(() => undefined);
+      const h = harness(); // no onFailure observer registered
+      const { root, fakeRoot } = await mountPanel(h);
+      h.interactions.bind(root, "activate", h.activated, () => ({ at: "x" }));
+
+      // The fake swallows the delivery throw; with no reportError global, the
+      // failure must still surface — through console.error, never lost.
+      h.renderer.simulateInteraction(
+        fakeRoot,
+        "activate",
+        42 as unknown as JsonObject,
+      );
+      await h.interactions.settled();
+
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      const reported = consoleError.mock.calls[0]?.[0] as Error;
+      expect(reported).toBeInstanceOf(Error);
+      // The original error is carried as the reported error's cause.
+      expect(reported.cause).toBeInstanceOf(NonObjectSnapshotError);
+      expect(h.dispatched).toEqual([]);
+    });
+  });
+
+  it("prefers globalThis.reportError when the host provides it, selected at call time", async () => {
+    const reportError = vi.fn();
+    const globalRef = globalThis as { reportError?: (error: unknown) => void };
+    const saved = globalRef.reportError;
+    const hadOwn = Object.prototype.hasOwnProperty.call(
+      globalThis,
+      "reportError",
+    );
+    globalRef.reportError = reportError;
+    try {
+      const consoleError = vi
+        .spyOn(hostConsole, "error")
+        .mockImplementation(() => undefined);
+      const h = harness(); // no onFailure observer registered
+      const { root, fakeRoot } = await mountPanel(h);
+      h.interactions.bind(root, "activate", h.activated, () => ({ at: "x" }));
+
+      h.renderer.simulateInteraction(
+        fakeRoot,
+        "activate",
+        42 as unknown as JsonObject,
+      );
+      await h.interactions.settled();
+
+      // The host reporter is selected at call time; console.error is untouched.
+      expect(reportError).toHaveBeenCalledTimes(1);
+      const reported = reportError.mock.calls[0]?.[0] as Error;
+      expect(reported).toBeInstanceOf(Error);
+      expect(reported.cause).toBeInstanceOf(NonObjectSnapshotError);
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(h.dispatched).toEqual([]);
+    } finally {
+      if (hadOwn && saved !== undefined) globalRef.reportError = saved;
+      else delete globalRef.reportError;
+    }
+  });
+
+  it("contains a throwing observer and routes its error to the reporter of last resort", async () => {
+    await withoutGlobalReportError(async () => {
+      const consoleError = vi
+        .spyOn(hostConsole, "error")
+        .mockImplementation(() => undefined);
+      const observerError = new Error("observer blew up");
+      const runtime = createRuntime({ id: "throwing-observer" });
+      const components = createComponentRuntime(runtime);
+      const templates = createTemplateRuntime(runtime);
+      const renderer = createFakeRenderer();
+      const projection = createProjectionRuntime(runtime, renderer);
+      const events = createEventRuntime(runtime, {});
+      const activated = createEventClass("editor.activated", {
+        at: eventField((value) => typeof value === "string"),
+      });
+      events.register(activated);
+      const interactions = createInteractionBinding(
+        runtime,
+        projection,
+        events,
+        {
+          onFailure: () => {
+            throw observerError;
+          },
+        },
+      );
+      const h = {
+        runtime,
+        components,
+        templates,
+        renderer,
+        projection,
+        events,
+        activated,
+        interactions,
+        dispatched: [] as JsonObject[],
+        failures: [] as InteractionFailure[],
+      };
+      const { root, fakeRoot } = await mountPanel(h);
+      interactions.bind(root, "activate", activated, () => ({ at: "x" }));
+
+      // The throw must not escape the simulation (the swallow bug being fixed).
+      expect(() =>
+        renderer.simulateInteraction(
+          fakeRoot,
+          "activate",
+          42 as unknown as JsonObject,
+        ),
+      ).not.toThrow();
+      await interactions.settled();
+
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(consoleError.mock.calls[0]?.[0]).toBe(observerError);
+    });
   });
 });
 
@@ -256,9 +469,13 @@ describe("managed binding lifecycle", () => {
     expect(h.dispatched).toEqual([]);
   });
 
-  it("re-checks liveness so a delivery racing release dispatches nothing", async () => {
+  it("surfaces neither event nor failure for a delivery racing release", async () => {
     // A capturing port whose removeRoot keeps the delivery callback callable,
-    // isolating the binding's own liveness re-check from port removal.
+    // isolating the binding's own liveness re-check from port removal. Liveness
+    // gates before #report, so no reporter of last resort fires either.
+    const consoleError = vi
+      .spyOn(hostConsole, "error")
+      .mockImplementation(() => undefined);
     const runtime = createRuntime({ id: "race" });
     const components = createComponentRuntime(runtime);
     const templates = createTemplateRuntime(runtime);
@@ -286,7 +503,10 @@ describe("managed binding lifecycle", () => {
       at: eventField((value) => typeof value === "string"),
     });
     events.register(activated);
-    const interactions = createInteractionBinding(runtime, projection, events);
+    const failures: InteractionFailure[] = [];
+    const interactions = createInteractionBinding(runtime, projection, events, {
+      onFailure: (failure) => failures.push(failure),
+    });
 
     const cls = createComponentClass("editor.panel", () => ({}));
     const instance = await components.create(components.register(cls));
@@ -305,12 +525,15 @@ describe("managed binding lifecycle", () => {
 
     // Begin release without awaiting: the root is now disposing.
     const releasing = root.release();
-    // The adapter reports an interaction that was already in flight.
-    captured?.({ type: "click" });
+    // The adapter reports a malformed interaction that was already in flight:
+    // liveness gates failure surfacing too, so this raises no report.
+    captured?.(42 as unknown as JsonObject);
     await releasing;
     await interactions.settled();
 
     expect(dispatched).toEqual([]);
+    expect(failures).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("registers a binding against a freshly projected root after release", async () => {
@@ -358,5 +581,27 @@ describe("framework-neutral input core", () => {
     // Internals stay unexported.
     expect(names.has("projectionInteractionAccessor")).toBe(false);
     expect(names.has("DefaultInteractionBinding")).toBe(false);
+  });
+
+  it("exports the failure-channel type surface", () => {
+    // Type-only exports are erased at runtime, so assert they are usable at the
+    // type level against the public barrel (compilation is the assertion).
+    type Reason = publicApi.InteractionFailureReason;
+    type Failure = publicApi.InteractionFailure;
+    type Observer = publicApi.InteractionFailureObserver;
+    type Options = publicApi.InteractionBindingOptions;
+    const reason: Reason = "dispatch-error";
+    const failure: Failure = {
+      root: undefined as unknown as RootHandle,
+      type: "activate",
+      reason,
+      cause: new Error("x"),
+    };
+    const observer: Observer = (received) => void received;
+    const options: Options = { onFailure: observer };
+    expect(failure.reason).toBe("dispatch-error");
+    expect(typeof options.onFailure).toBe("function");
+    expect(publicApi.NonObjectSnapshotError).toBeDefined();
+    expect(publicApi.InvalidInteractionPayloadError).toBeDefined();
   });
 });

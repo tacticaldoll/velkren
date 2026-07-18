@@ -53,6 +53,25 @@ describe("fake renderer interaction registration", () => {
     expect(calls).toBe(0);
   });
 
+  it("swallows a delivery-callback throw instead of propagating it", () => {
+    const renderer = createFakeRenderer();
+    const adapterRoot = renderer.createRoot("root-1", node("section"));
+    let calls = 0;
+    renderer.registerInteraction(adapterRoot, "activate", () => {
+      calls += 1;
+      throw new Error("delivery blew up");
+    });
+
+    // Mirrors real event dispatch: the throw must not escape the simulation, so
+    // the failure contract is observable only through the failure channel.
+    expect(() =>
+      renderer.simulateInteraction(only(renderer), "activate", {
+        type: "click",
+      }),
+    ).not.toThrow();
+    expect(calls).toBe(1);
+  });
+
   it("removes a single registration through its handle", () => {
     const renderer = createFakeRenderer();
     const adapterRoot = renderer.createRoot("root-1", node("section"));

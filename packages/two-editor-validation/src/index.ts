@@ -4,6 +4,7 @@ import {
   createEventClass,
   createEventRuntime,
   createInteractionBinding,
+  createInteractionType,
   createLayoutRuntime,
   createProjectionRuntime,
   createRuntime,
@@ -23,8 +24,13 @@ import {
   type TemplateNode,
 } from "@velkren/core";
 
-/** The interaction type a Button reports; captured through the adapter. */
-const BUTTON_INTERACTION = "click";
+/**
+ * The interaction a Button reports, as a registered typed vocabulary entry: its
+ * identity is `editor.activate`, and it is captured through the adapter as the
+ * native `click` event. Demonstrates the typed InteractionType path across every
+ * adapter that mounts this composition.
+ */
+const buttonInteraction = createInteractionType("editor.activate", "click");
 
 /**
  * The DOM-neutral test-drive surface the composition needs from a renderer: the
@@ -138,6 +144,7 @@ export function createEditorApp(renderer: RendererTestHarness): EditorApp {
     projection,
     events,
   );
+  interactions.registerInteractionType(buttonInteraction);
 
   for (const componentClass of editorComponentClasses) {
     components.register(componentClass);
@@ -183,7 +190,7 @@ export function createEditorApp(renderer: RendererTestHarness): EditorApp {
 
     // Route the Button interaction through the neutral port and binding: no
     // data-velkren-root selector, no application-attached native listener.
-    interactions.bind(root, BUTTON_INTERACTION, submitted, () => ({
+    interactions.bind(root, buttonInteraction, submitted, () => ({
       editor: id,
     }));
 
@@ -208,7 +215,7 @@ export function createEditorApp(renderer: RendererTestHarness): EditorApp {
         if (next !== undefined) projection.commit(root, next);
       },
       async activate() {
-        renderer.simulateInteraction(root.identity, BUTTON_INTERACTION);
+        renderer.simulateInteraction(root.identity, buttonInteraction.native);
         await interactions.settled();
       },
       async dispose() {

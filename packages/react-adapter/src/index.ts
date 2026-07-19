@@ -1,4 +1,8 @@
-import { createElement, type ReactElement } from "react";
+import {
+  createElement,
+  type FunctionComponent,
+  type ReactElement,
+} from "react";
 import { flushSync } from "react-dom";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 import {
@@ -28,6 +32,24 @@ export interface ReactRenderer extends RendererPort {
   simulateInteraction(identity: string, type: string): void;
 }
 
+/**
+ * A registered React view: a component that receives a node's neutral
+ * `attributes` (a `JsonObject`) as its props. React and this view type live only
+ * in this package; `@velkren/core` never references them.
+ */
+export type ReactView = FunctionComponent<JsonObject>;
+
+/** An adapter-local registry resolving a node `kind` to a native React view. */
+export type ReactViewRegistry = Record<string, ReactView>;
+
+/** Optional configuration for the React renderer. */
+export interface ReactRendererOptions {
+  /** The shared host under which each root's per-root container is mounted. */
+  readonly container?: HTMLElement;
+  /** A registry resolving a node `kind` to a native React view. */
+  readonly views?: ReactViewRegistry;
+}
+
 /** Deliver an immutable interaction snapshot inward through the port. */
 type Deliver = (snapshot: JsonObject) => void;
 
@@ -48,8 +70,15 @@ interface ReactAdapterRoot {
   disposed: boolean;
 }
 
-/** Create an in-DOM React renderer implementing the core RendererPort. */
-export function createReactRenderer(container?: HTMLElement): ReactRenderer {
+/**
+ * Create an in-DOM React renderer implementing the core RendererPort. Accepts an
+ * options bag `{ container?, views? }`, or a bare `HTMLElement` shorthand for
+ * `{ container }` (backward-compatible with the no-arg and container call sites).
+ */
+export function createReactRenderer(
+  options?: HTMLElement | ReactRendererOptions,
+): ReactRenderer {
+  const { container, views } = normalizeOptions(options);
   const rootsByIdentity = new Map<string, ReactAdapterRoot>();
 
   const asRoot = (root: AdapterRoot): ReactAdapterRoot =>
@@ -67,7 +96,7 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       // Flush synchronously: the port contract reads the mounted DOM the instant
       // this returns, but `react-dom` otherwise only schedules the render.
       flushSync(() => {
-        reactRoot.render(createElement(VelkrenTree, { node }));
+        reactRoot.render(createElement(VelkrenTree, { node, views }));
       });
       // Identity is stamped imperatively on the container (never a React prop):
       // a re-render alone would not restore an out-of-band-removed attribute.
@@ -88,7 +117,9 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       const adapterRoot = asRoot(root);
       if (adapterRoot.disposed) return;
       flushSync(() => {
-        adapterRoot.reactRoot.render(createElement(VelkrenTree, { node }));
+        adapterRoot.reactRoot.render(
+          createElement(VelkrenTree, { node, views }),
+        );
       });
       // Re-stamp: reconciliation updates content but does not touch the
       // container's identity attribute, so repair it here (commit-repair).
@@ -183,23 +214,53 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 
 interface VelkrenTreeProps {
   readonly node: RenderNode;
+  readonly views: ReactViewRegistry;
 }
 
 /** Render a RenderNode tree with `React.createElement` (no JSX). */
-function VelkrenTree({ node }: VelkrenTreeProps): ReactElement {
-  return renderNode(node);
+function VelkrenTree({ node, views }: VelkrenTreeProps): ReactElement {
+  return renderNode(node, views);
 }
 
-function renderNode(node: RenderNode, key?: string): ReactElement {
+function renderNode(
+  node: RenderNode,
+  views: ReactViewRegistry,
+  key?: string,
+): ReactElement {
+  // Registry check first, for every node incl. the root: on a hit render the
+  // registered view as a self-contained leaf with the node's RAW attributes as
+  // props — no `translateAttribute`/`stringifyAttribute` translation and no
+  // children projected into it. On a miss, fall through to the primitive path.
+  const view = views[node.kind];
+  if (view !== undefined) {
+    return key === undefined
+      ? createElement(view, node.attributes)
+      : createElement(view, { key, ...node.attributes });
+  }
   const props: Record<string, unknown> = {};
   if (key !== undefined) props.key = key;
   for (const [name, value] of Object.entries(node.attributes)) {
     props[translateAttribute(name)] = stringifyAttribute(value);
   }
   const children = node.children.map((child, index) =>
-    renderNode(child, String(index)),
+    renderNode(child, views, String(index)),
   );
   return createElement(node.kind, props, ...children);
+}
+
+/**
+ * Normalize the factory argument into an options bag. A bare `HTMLElement`
+ * shorthand for `{ container }` is detected by its `nodeType` (rather than
+ * `instanceof HTMLElement`, which would throw in the core's Node-only
+ * environment where the DOM global is absent).
+ */
+function normalizeOptions(options?: HTMLElement | ReactRendererOptions): {
+  container: HTMLElement | undefined;
+  views: ReactViewRegistry;
+} {
+  if (options == null) return { container: undefined, views: {} };
+  if ("nodeType" in options) return { container: options, views: {} };
+  return { container: options.container, views: options.views ?? {} };
 }
 
 /** Translate renderer-neutral attribute names to React's DOM prop names. */

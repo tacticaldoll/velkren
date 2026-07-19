@@ -204,7 +204,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-membrane-outward-events
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add an outward semantic-event → `CustomEvent` relay: host-declared boundary events dispatched on the host element as bubbling, non-cancelable notifications whose `detail` is the event's frozen immutable snapshot, with the outward name decoupled from the internal EventClass.
 - **Dependencies**: `add-element-membrane`
 - **Why next**: The minimal membrane observes emission only internally (via trace); a host needs to react to Velkren events without importing Velkren.

@@ -283,6 +283,20 @@ export interface MembraneMount {
  */
 export interface MembraneConfig {
   mount(context: MembraneMountContext): MembraneMount | Promise<MembraneMount>;
+  /**
+   * Opt into a shadow-DOM surface for style encapsulation. Default (absent or
+   * `false`) is light DOM. `true` attaches an `open` shadow root; `"open"` or
+   * `"closed"` selects the mode. The projection, identity, and interaction
+   * listener move inside the shadow root; outward events still dispatch on the
+   * host element.
+   */
+  readonly shadow?: boolean | "open" | "closed";
+  /**
+   * Interior styles adopted into the shadow root (CSS text). Only meaningful with
+   * `shadow`. The membrane injects exactly this and never copies the host page's
+   * global stylesheets across the boundary.
+   */
+  readonly styles?: string;
 }
 
 /** Surface a membrane failure without swallowing it; never throws into a callback. */
@@ -309,6 +323,9 @@ function getMembraneBase(): CustomElementConstructor {
     #generation = 0;
     /** True while a deferred release is pending; a reconnect clears it. */
     #releaseQueued = false;
+    /** The wrapper inside the shadow root, once attached; the renderer container
+     * in shadow mode. Attached once and reused across mount cycles. */
+    #shadowContainer: HTMLElement | undefined;
 
     #config(): MembraneConfig {
       const config = (this.constructor as { membraneConfig?: MembraneConfig })
@@ -317,6 +334,25 @@ function getMembraneBase(): CustomElementConstructor {
         throw new Error("Velkren membrane element has no configuration");
       }
       return config;
+    }
+
+    /** The renderer container: the element itself in light mode, or a wrapper
+     * inside a lazily-attached shadow root in shadow mode. */
+    #container(config: MembraneConfig): HTMLElement {
+      if (!config.shadow) return this;
+      if (this.#shadowContainer === undefined) {
+        const mode = config.shadow === true ? "open" : config.shadow;
+        const root = this.attachShadow({ mode });
+        if (config.styles !== undefined) {
+          const style = document.createElement("style");
+          style.textContent = config.styles;
+          root.appendChild(style);
+        }
+        const wrapper = document.createElement("div");
+        root.appendChild(wrapper);
+        this.#shadowContainer = wrapper;
+      }
+      return this.#shadowContainer;
     }
 
     connectedCallback(): void {
@@ -329,7 +365,9 @@ function getMembraneBase(): CustomElementConstructor {
       // resolves on its own microtasks, so a DOM signal is a request, not the
       // definition of lifecycle.
       this.#generation += 1;
-      const renderer = createSolidRenderer({ container: this });
+      const renderer = createSolidRenderer({
+        container: this.#container(this.#config()),
+      });
       const dispatchBoundaryEvent = (
         name: string,
         detail: JsonObject,

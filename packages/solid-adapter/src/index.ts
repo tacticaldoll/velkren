@@ -244,3 +244,139 @@ function applyAttributes(element: HTMLElement, attributes: JsonObject): void {
 function stringifyAttribute(value: JsonValue): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
+
+/**
+ * What a membrane hands to its factory: a Solid renderer already bound to the
+ * placed element as its container, and the element itself. The renderer's
+ * per-root container carries identity and the interaction listener, so the
+ * factory only composes and mounts — it never touches the element's identity.
+ */
+export interface MembraneMountContext {
+  readonly renderer: SolidRenderer;
+  readonly element: HTMLElement;
+}
+
+/**
+ * The handle a membrane factory returns. The membrane calls `dispose` once, on
+ * confirmed detach, to release exactly what the factory created. A rejected
+ * `dispose` surfaces through the membrane's failure channel; it is never
+ * swallowed.
+ */
+export interface MembraneMount {
+  dispose(): void | Promise<void>;
+}
+
+/**
+ * A host-authored membrane configuration. `mount` composes a Velkren runtime on
+ * the supplied renderer and returns a `MembraneMount`. At this increment the
+ * factory mints the composition (a fresh runtime) it owns — ephemeral: the
+ * membrane disposes it when the element is confirmed detached.
+ */
+export interface MembraneConfig {
+  mount(context: MembraneMountContext): MembraneMount | Promise<MembraneMount>;
+}
+
+/** Surface a membrane failure without swallowing it; never throws into a callback. */
+function reportMembraneError(error: unknown): void {
+  const report = (globalThis as { reportError?: (value: unknown) => void })
+    .reportError;
+  if (typeof report === "function") report(error);
+  else console.error(error);
+}
+
+/** The generic membrane element class, built lazily so `HTMLElement` (a DOM
+ * global absent in core's Node environment) is only evaluated where the DOM
+ * exists — inside `defineVelkrenElement`, which a host calls in a browser. */
+let membraneBase: CustomElementConstructor | undefined;
+
+function getMembraneBase(): CustomElementConstructor {
+  if (membraneBase !== undefined) return membraneBase;
+  class VelkrenMembraneElement extends HTMLElement {
+    /** The in-flight or resolved mount for the current generation; undefined
+     * when nothing is mounted. */
+    #mount: Promise<MembraneMount | undefined> | undefined;
+    /** Bumped only on a fresh mount, so a stale deferred release bails. A move
+     * (disconnect+reconnect within the grace window) does not bump it. */
+    #generation = 0;
+    /** True while a deferred release is pending; a reconnect clears it. */
+    #releaseQueued = false;
+
+    #config(): MembraneConfig {
+      const config = (this.constructor as { membraneConfig?: MembraneConfig })
+        .membraneConfig;
+      if (config === undefined) {
+        throw new Error("Velkren membrane element has no configuration");
+      }
+      return config;
+    }
+
+    connectedCallback(): void {
+      // A reconnect within the grace window cancels a pending release and keeps
+      // the existing projection.
+      this.#releaseQueued = false;
+      if (this.#mount !== undefined) return;
+      // Fresh mount: bind a renderer to this element as its container and let
+      // the host factory compose. connectedCallback only schedules — the mount
+      // resolves on its own microtasks, so a DOM signal is a request, not the
+      // definition of lifecycle.
+      this.#generation += 1;
+      const renderer = createSolidRenderer({ container: this });
+      this.#mount = Promise.resolve(
+        this.#config().mount({ renderer, element: this }),
+      ).catch((error: unknown) => {
+        reportMembraneError(error);
+        return undefined;
+      });
+    }
+
+    disconnectedCallback(): void {
+      if (this.#mount === undefined) return;
+      this.#releaseQueued = true;
+      const generation = this.#generation;
+      // Defer the release one grace window (a microtask). A move re-connects
+      // synchronously and clears the flag before this runs.
+      queueMicrotask(() => {
+        if (!this.#releaseQueued || this.#generation !== generation) return;
+        // A disposal failure surfaces through the failure channel rather than
+        // becoming an unhandled rejection; it is never swallowed.
+        void this.#release(generation).catch(reportMembraneError);
+      });
+    }
+
+    async #release(generation: number): Promise<void> {
+      const mount = this.#mount;
+      if (mount === undefined || this.#generation !== generation) return;
+      // Detach state before awaiting so a later reconnect starts a fresh mount
+      // and this release runs exactly once (idempotent, no double dispose).
+      this.#mount = undefined;
+      this.#releaseQueued = false;
+      const resolved = await mount;
+      if (resolved !== undefined) await resolved.dispose();
+    }
+  }
+  membraneBase = VelkrenMembraneElement;
+  return membraneBase;
+}
+
+/**
+ * Register a custom element that projects a Velkren composition. One
+ * registration authorizes; declarative placement of `tag` then creates
+ * membranes, mirroring `customElements.define`. Each placed element mints and
+ * owns its composition through `config.mount` (ephemeral), disposes it on
+ * confirmed detach, and survives a DOM move. `@velkren/core` is never imported
+ * here: the membrane is host-blind adapter code.
+ */
+export function defineVelkrenElement(
+  tag: string,
+  config: MembraneConfig,
+): void {
+  if (customElements.get(tag) !== undefined) {
+    throw new Error(
+      `Velkren element tag ${JSON.stringify(tag)} is already defined`,
+    );
+  }
+  const Base = getMembraneBase();
+  const ElementClass = class extends Base {};
+  (ElementClass as { membraneConfig?: MembraneConfig }).membraneConfig = config;
+  customElements.define(tag, ElementClass);
+}

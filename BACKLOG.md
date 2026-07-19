@@ -166,6 +166,51 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Acceptance**: A registered view renders in place of the primitive with attributes as props, including at the root, and its interaction bubbles to the container and delivers through the port; unregistered kinds fall back; core references no view type.
 - **Deferred**: Native views holding Velkren-managed children (nesting); a typed view-props contract; per-node primitive-vs-view Solid update to preserve root focus.
 
+## add-element-membrane
+
+- **Status**: done
+- **Outcome**: Add a custom-element "membrane" (minimal increment): an adapter-side distribution boundary that embeds a Velkren component in a non-Velkren host page as a light-DOM, ephemeral custom element, while all authority stays inside a runtime the membrane mints and owns. Purely additive on the Solid adapter's `createSolidRenderer({ container })`; `@velkren/core` unchanged.
+- **Dependencies**: `refactor-container-anchor`
+- **Why next**: Every path to a Velkren component started inside a Velkren-aware app; the membrane is the distribution seam, and the container anchor made the element a viable boundary.
+- **Acceptance**: One registration authorizes a declaratively-placed tag; two membranes isolate, emit business events (observed through the event trace) on interaction, survive a DOM move, and dispose scope-locally through the element boundary with no `@velkren/core` change.
+- **Deferred**: Inbound data crossings (`add-membrane-inbound-data`), a durable host-owned lifetime (`add-membrane-durable-lifetime`), a shadow-DOM surface (`add-membrane-shadow-surface`), an outward event relay (`add-membrane-outward-events`).
+
+## add-membrane-inbound-data
+
+- **Status**: candidate
+- **Outcome**: Add inbound data crossings to the membrane: observed attributes and host-assigned properties cross inward as immutable snapshots routed through bindings; the property channel is reserved for authorization handoff and rejects unsnapshotted application data.
+- **Dependencies**: `add-element-membrane`
+- **Why next**: The minimal membrane carries no host data; real embeds configure a component from host markup/props, which must not bypass the snapshot boundary.
+- **Acceptance**: An attribute change and a data property both snapshot and drive a binding, never mutating runtime state directly; the property channel otherwise carries only authorization handoffs.
+- **Deferred**: A typed props contract (`add-typed-view-props`).
+
+## add-membrane-durable-lifetime
+
+- **Status**: candidate
+- **Outcome**: Add a durable membrane lifetime: the factory hands a borrowed authority into a host-owned runtime (a creation-authorizing scope or a projectable reference), so component state outlives any element's DOM presence; the membrane disposes only what it created and is resilient to the runtime being disposed out from under it.
+- **Dependencies**: `add-element-membrane`
+- **Why next**: The minimal membrane ties state to DOM lifetime; a persistent document with multiple views needs app-lifetime state without refcounting.
+- **Acceptance**: A borrowing membrane releases only its own root/instance on detach; the host-owned runtime survives; disposing the runtime under a live membrane reflects empty and makes later detach a no-op.
+- **Deferred**: None beyond the membrane line.
+
+## add-membrane-shadow-surface
+
+- **Status**: candidate
+- **Outcome**: Add an opt-in shadow-DOM surface to the membrane, with `composedPath`-based interaction capture and an explicit interior-styles channel, keeping the anchor on the host element.
+- **Dependencies**: `add-element-membrane`
+- **Why next**: Embedding into a foreign host often needs style encapsulation; the minimal membrane is light-DOM only.
+- **Acceptance**: A shadow membrane delivers interactions correctly via `composedPath`, adopts only host-provided interior styles, and keeps identity/commit-repair/interaction on the host element.
+- **Deferred**: Slotted native nesting (`add-native-nested-views`); SSR / Declarative Shadow DOM.
+
+## add-membrane-outward-events
+
+- **Status**: candidate
+- **Outcome**: Add an outward semantic-event → `CustomEvent` relay: host-declared boundary events dispatched on the host element as bubbling, non-cancelable notifications whose `detail` is the event's frozen immutable snapshot, with the outward name decoupled from the internal EventClass.
+- **Dependencies**: `add-element-membrane`
+- **Why next**: The minimal membrane observes emission only internally (via trace); a host needs to react to Velkren events without importing Velkren.
+- **Acceptance**: A boundary event dispatches a non-cancelable bubbling CustomEvent carrying only a frozen snapshot; `preventDefault` does not steer the runtime; core marks no event boundary-public.
+- **Deferred**: Host→runtime veto / negotiation events.
+
 ## add-native-nested-views
 
 - **Status**: candidate

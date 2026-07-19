@@ -14,6 +14,13 @@ import {
   type RenderNode,
   type RendererPort,
 } from "@velkren/core";
+import {
+  defineMembraneElement,
+  type MembraneConfig as MembraneConfigCore,
+  type MembraneMountContext as MembraneMountContextCore,
+} from "@velkren/element";
+
+export type { MembraneMount } from "@velkren/element";
 
 /**
  * The React renderer: a real-DOM `RendererPort` implementation driven by React's
@@ -276,4 +283,21 @@ function stringifyAttribute(value: JsonValue): string {
 
 function stampIdentity(container: HTMLElement, identity: string): void {
   container.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
+}
+
+/** A membrane configuration bound to the React renderer. */
+export type MembraneConfig = MembraneConfigCore<ReactRenderer>;
+/** What a React membrane hands its factory. */
+export type MembraneMountContext = MembraneMountContextCore<ReactRenderer>;
+
+/**
+ * Register a custom element that projects a Velkren composition on the React
+ * renderer. A thin wrapper over the shared, renderer-agnostic membrane core in
+ * `@velkren/element`, binding it to `createReactRenderer`.
+ */
+export function defineVelkrenElement(
+  tag: string,
+  config: MembraneConfig,
+): void {
+  defineMembraneElement(tag, config, createReactRenderer);
 }

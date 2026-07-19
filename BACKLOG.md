@@ -249,7 +249,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-interaction-type-vocabulary
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Replace the free `interaction-type` string with a registered, typed vocabulary (mirroring `EventClass`), so interaction types are validated and normalized across adapters.
 - **Dependencies**: `add-react-adapter`
 - **Why next**: With two adapters naming interactions, an unvalidated free string invites divergence.

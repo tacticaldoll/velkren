@@ -195,7 +195,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-membrane-shadow-surface
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add an opt-in shadow-DOM surface to the membrane, with `composedPath`-based interaction capture and an explicit interior-styles channel, keeping the anchor on the host element.
 - **Dependencies**: `add-element-membrane`
 - **Why next**: Embedding into a foreign host often needs style encapsulation; the minimal membrane is light-DOM only.

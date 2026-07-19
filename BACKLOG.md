@@ -186,7 +186,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-membrane-durable-lifetime
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add a durable membrane lifetime: the factory hands a borrowed authority into a host-owned runtime (a creation-authorizing scope or a projectable reference), so component state outlives any element's DOM presence; the membrane disposes only what it created and is resilient to the runtime being disposed out from under it.
 - **Dependencies**: `add-element-membrane`
 - **Why next**: The minimal membrane ties state to DOM lifetime; a persistent document with multiple views needs app-lifetime state without refcounting.

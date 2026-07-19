@@ -27,11 +27,28 @@ export interface SolidRenderer extends RendererPort {
   simulateInteraction(identity: string, type: string): void;
 }
 
+/**
+ * A registered Solid view: a function that receives a node's neutral
+ * `attributes` (a `JsonObject`) as its props and returns a DOM element. Called
+ * within the root's reactive owner so its effects dispose on unmount. SolidJS
+ * and this view type live only in this package; `@velkren/core` never sees them.
+ */
+export type SolidView = (props: JsonObject) => HTMLElement;
+
+/** An adapter-local registry resolving a node `kind` to a native Solid view. */
+export type SolidViewRegistry = Record<string, SolidView>;
+
+/** Optional configuration for the SolidJS renderer. */
+export interface SolidRendererOptions {
+  /** The shared host under which each root's per-root container is mounted. */
+  readonly container?: HTMLElement;
+  /** A registry resolving a node `kind` to a native Solid view. */
+  readonly views?: SolidViewRegistry;
+}
+
 interface SolidAdapterRoot {
   /** The adapter-owned per-root container: identity + interaction anchor. */
   readonly rootContainer: HTMLElement;
-  /** The rendered root content element, mounted inside `rootContainer`. */
-  readonly element: HTMLElement;
   readonly identity: string;
   setNode(node: RenderNode): void;
   dispose(): void;
@@ -39,8 +56,15 @@ interface SolidAdapterRoot {
   readonly listeners: { type: string; listener: EventListener }[];
 }
 
-/** Create an in-DOM SolidJS renderer implementing the core RendererPort. */
-export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
+/**
+ * Create an in-DOM SolidJS renderer implementing the core RendererPort. Accepts
+ * an options bag `{ container?, views? }`, or a bare `HTMLElement` shorthand for
+ * `{ container }` (backward-compatible with the no-arg and container call sites).
+ */
+export function createSolidRenderer(
+  options?: HTMLElement | SolidRendererOptions,
+): SolidRenderer {
+  const { container, views } = normalizeOptions(options);
   const host = container ?? document.createElement("div");
   const rootsByIdentity = new Map<string, SolidAdapterRoot>();
 
@@ -56,19 +80,22 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
         // The per-root container is the anchor; the rendered content lives
         // inside it. Identity and the interaction listener sit on the container.
         const rootContainer = document.createElement("div");
-        const element = document.createElement(node.kind);
-        rootContainer.appendChild(element);
         const [current, setNode] = createSignal<RenderNode>(node);
         createRenderEffect(() => {
           // Re-stamp identity on the container each render so a commit repairs
           // an out-of-band-removed attribute (commit-repair contract).
           rootContainer.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
-          renderInto(element, current());
+          // Rebuild the content from the current node each commit (registered
+          // view or primitive) and swap it into the container. The anchor stays
+          // on the container, so replacing content is safe, and a registered
+          // root view both renders and updates on commit. This render effect
+          // owns the rebuilt subtree, so a registered view's effects dispose
+          // when it re-runs or the root unmounts.
+          rootContainer.replaceChildren(renderNodeElement(current(), views));
         });
         const listeners: { type: string; listener: EventListener }[] = [];
         root = {
           rootContainer,
-          element,
           identity,
           disposed: false,
           listeners,
@@ -143,9 +170,12 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
     simulateInteraction(identity: string, type: string): void {
       const adapterRoot = rootsByIdentity.get(identity);
       if (adapterRoot === undefined || adapterRoot.disposed) return;
-      // Dispatch from the content element so it bubbles to the container's
-      // native listener, exactly as a real interaction would.
-      adapterRoot.element.dispatchEvent(new Event(type, { bubbles: true }));
+      // Dispatch from the current content element (rebuilt each commit) so it
+      // bubbles to the container's native listener, exactly as a real
+      // interaction would.
+      const content = adapterRoot.rootContainer.firstElementChild;
+      if (content === null) return;
+      content.dispatchEvent(new Event(type, { bubbles: true }));
     },
   };
 
@@ -168,16 +198,41 @@ export function snapshotNativeEvent(event: Event): JsonObject {
   return Object.freeze({ type: event.type, value });
 }
 
-function renderInto(element: HTMLElement, node: RenderNode): void {
-  applyAttributes(element, node.attributes);
-  element.replaceChildren(...node.children.map(buildElement));
-}
-
-function buildElement(node: RenderNode): HTMLElement {
+/**
+ * Produce a node's content element. The shared, registry-aware helper used by
+ * both the root render effect and child building: on a `views[kind]` hit it
+ * renders the registered Solid view as a self-contained leaf (raw
+ * `node.attributes` as props; the node's Velkren-managed children are NOT
+ * projected into it); on a miss it builds the primitive element with its
+ * attributes and children recursively, exactly as before.
+ */
+function renderNodeElement(
+  node: RenderNode,
+  views: SolidViewRegistry,
+): HTMLElement {
+  const view = views[node.kind];
+  if (view !== undefined) return view(node.attributes);
   const element = document.createElement(node.kind);
   applyAttributes(element, node.attributes);
-  element.replaceChildren(...node.children.map(buildElement));
+  element.replaceChildren(
+    ...node.children.map((child) => renderNodeElement(child, views)),
+  );
   return element;
+}
+
+/**
+ * Normalize the factory argument into an options bag. A bare `HTMLElement`
+ * shorthand for `{ container }` is detected by its `nodeType` (rather than
+ * `instanceof HTMLElement`, which would throw in the core's Node-only
+ * environment where the DOM global is absent).
+ */
+function normalizeOptions(options?: HTMLElement | SolidRendererOptions): {
+  container: HTMLElement | undefined;
+  views: SolidViewRegistry;
+} {
+  if (options == null) return { container: undefined, views: {} };
+  if ("nodeType" in options) return { container: options, views: {} };
+  return { container: options.container, views: options.views ?? {} };
 }
 
 function applyAttributes(element: HTMLElement, attributes: JsonObject): void {

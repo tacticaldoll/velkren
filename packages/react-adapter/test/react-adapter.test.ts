@@ -17,12 +17,17 @@ import {
   type JsonObject,
   type RenderNode,
   type RootHandle,
+  type TemplateNode,
 } from "@velkren/core";
+
+import { createElement } from "react";
 
 import {
   createReactRenderer,
   snapshotNativeEvent,
   type ReactRenderer,
+  type ReactView,
+  type ReactViewRegistry,
 } from "../src/index.js";
 
 function node(kind: string, attributes: JsonObject = {}): RenderNode {
@@ -36,6 +41,8 @@ function node(kind: string, attributes: JsonObject = {}): RenderNode {
 async function mountBound(options: {
   project: (snapshot: JsonObject) => unknown;
   onFailure?: (failure: InteractionFailure) => void;
+  views?: ReactViewRegistry;
+  templateRoot?: TemplateNode;
 }): Promise<{
   renderer: ReactRenderer;
   root: RootHandle;
@@ -47,7 +54,10 @@ async function mountBound(options: {
   const runtime = createRuntime({ id: "react" });
   const components = createComponentRuntime(runtime);
   const templates = createTemplateRuntime(runtime);
-  const renderer = createReactRenderer();
+  const renderer =
+    options.views === undefined
+      ? createReactRenderer()
+      : createReactRenderer({ views: options.views });
   const projection = createProjectionRuntime(runtime, renderer);
 
   const clicked = createEventClass("react.clicked", {
@@ -69,7 +79,7 @@ async function mountBound(options: {
   templates.register(
     createTemplateClass(widgetClass.localSlug, {
       component: widgetClass.id,
-      roots: { main: { kind: "button" } },
+      roots: { main: options.templateRoot ?? { kind: "button" } },
     }),
   );
 
@@ -323,5 +333,108 @@ describe("React renderer port", () => {
     // Repeated disposal is a no-op.
     await expect(bound.release()).resolves.toBeUndefined();
     expect(bound.emissions).toEqual(["one"]);
+  });
+
+  // A registered view must CONSUME its props (read named fields), not blind-spread
+  // the raw JsonObject onto a host element — that would trip React's unknown-prop
+  // warning, which the console guard above turns into a hard failure.
+  const Badge: ReactView = (props) =>
+    createElement(
+      "span",
+      { title: typeof props.label === "string" ? props.label : "" },
+      typeof props.label === "string" ? props.label : "",
+    );
+
+  it("renders a registered view in place of the primitive, consuming props", () => {
+    const renderer = createReactRenderer({ views: { badge: Badge } });
+    renderer.createRoot("root-1", node("badge", { label: "hi" }));
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    // The registered view rendered (a <span>), not a primitive <badge>, and it
+    // received the node's attributes as props (label read into title + text).
+    expect(content?.tagName.toLowerCase()).toBe("span");
+    expect(content?.getAttribute("title")).toBe("hi");
+    expect(content?.textContent).toBe("hi");
+  });
+
+  it("falls back to the primitive for an unregistered kind", () => {
+    const renderer = createReactRenderer({ views: { badge: Badge } });
+    renderer.createRoot("root-1", node("section", { role: "main" }));
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(content?.tagName.toLowerCase()).toBe("section");
+    expect(content?.getAttribute("role")).toBe("main");
+  });
+
+  it("renders the primitive path unchanged when no registry is configured", () => {
+    const renderer = createReactRenderer();
+    // With no registry every kind is a plain host element (a hyphenated custom
+    // element so React's unrecognized-tag warning — a hard failure here — is not
+    // tripped); attributes are set, no children beyond the node's own.
+    renderer.createRoot("root-1", node("ui-badge", { label: "hi" }));
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(content?.tagName.toLowerCase()).toBe("ui-badge");
+    expect(content?.getAttribute("label")).toBe("hi");
+    expect(content?.textContent).toBe("");
+  });
+
+  it("renders a registered view as a leaf, not projecting node children", () => {
+    const Leaf: ReactView = (props) =>
+      createElement(
+        "span",
+        null,
+        typeof props.label === "string" ? props.label : "",
+      );
+    const renderer = createReactRenderer({ views: { leaf: Leaf } });
+    renderer.createRoot("root-1", {
+      kind: "leaf",
+      attributes: { label: "solo" },
+      children: [node("em"), node("strong")],
+      slots: {},
+    });
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(content?.tagName.toLowerCase()).toBe("span");
+    expect(content?.textContent).toBe("solo");
+    // The node's Velkren-managed children are NOT projected into the view.
+    expect(content?.querySelector("em")).toBeNull();
+    expect(content?.querySelector("strong")).toBeNull();
+    expect(content?.children.length).toBe(0);
+  });
+
+  it("renders and updates a registered view at the root, delivering an interaction", async () => {
+    const RootButton: ReactView = (props) =>
+      createElement(
+        "button",
+        { title: typeof props.label === "string" ? props.label : "" },
+        typeof props.label === "string" ? props.label : "",
+      );
+    const bound = await mountBound({
+      project: () => ({ editor: "one" }),
+      views: { "ui.button": RootButton },
+      templateRoot: { kind: "ui.button", attributes: { label: "go" } },
+    });
+    const container = bound.renderer.elementForIdentity(bound.root.identity);
+    // The registered view renders at the ROOT (a <button>, not a <ui.button>).
+    expect(container?.firstElementChild?.tagName.toLowerCase()).toBe("button");
+    expect(container?.firstElementChild?.getAttribute("title")).toBe("go");
+
+    // It updates on a subsequent commit (fresh props via React re-render).
+    bound.commit({
+      kind: "ui.button",
+      attributes: { label: "stop" },
+      children: [],
+      slots: {},
+    });
+    expect(container?.firstElementChild?.getAttribute("title")).toBe("stop");
+    // The identity anchor stays on the container across the commit.
+    expect(container?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+      bound.root.identity,
+    );
+
+    // An interaction on the registered root view's element bubbles to the
+    // container's listener and delivers through the port, as for a primitive.
+    bound.renderer.simulateInteraction(bound.root.identity, "click");
+    await bound.settle();
+    expect(bound.emissions).toEqual(["one"]);
+
+    await bound.release();
   });
 });

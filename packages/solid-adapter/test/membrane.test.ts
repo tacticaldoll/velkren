@@ -48,6 +48,11 @@ function panelTemplate() {
 interface EditorRecords {
   readonly emissions: string[];
   readonly disposed: string[];
+  readonly mounted: string[];
+}
+
+function makeRecords(): EditorRecords {
+  return { emissions: [], disposed: [], mounted: [] };
 }
 
 /**
@@ -98,6 +103,7 @@ function editorMembrane(records: EditorRecords): MembraneConfig {
       const root = projected.roots.main;
       if (root === undefined) throw new Error("panel root was not projected");
       interactions.bind(root, "click", submitted, () => ({ editor: id }));
+      records.mounted.push(id);
 
       return {
         async dispose(): Promise<void> {
@@ -142,7 +148,7 @@ async function placeEditor(tag: string, id: string): Promise<HTMLElement> {
 
 describe("element membrane", () => {
   it("mounts a declaratively placed tag after one registration", async () => {
-    const records: EditorRecords = { emissions: [], disposed: [] };
+    const records = makeRecords();
     defineVelkrenElement("velkren-editor-basic", editorMembrane(records));
 
     const editor = await placeEditor("velkren-editor-basic", "solo");
@@ -154,7 +160,7 @@ describe("element membrane", () => {
   });
 
   it("isolates two membranes and disposes scope-locally", async () => {
-    const records: EditorRecords = { emissions: [], disposed: [] };
+    const records = makeRecords();
     defineVelkrenElement("velkren-editor-pair", editorMembrane(records));
 
     const a = await placeEditor("velkren-editor-pair", "a");
@@ -183,7 +189,7 @@ describe("element membrane", () => {
   });
 
   it("survives a DOM move without releasing", async () => {
-    const records: EditorRecords = { emissions: [], disposed: [] };
+    const records = makeRecords();
     defineVelkrenElement("velkren-editor-move", editorMembrane(records));
 
     const holder = document.createElement("div");
@@ -208,7 +214,7 @@ describe("element membrane", () => {
   });
 
   it("rejects a duplicate tag registration", () => {
-    const records: EditorRecords = { emissions: [], disposed: [] };
+    const records = makeRecords();
     defineVelkrenElement("velkren-editor-dup", editorMembrane(records));
     expect(() =>
       defineVelkrenElement("velkren-editor-dup", editorMembrane(records)),
@@ -216,7 +222,7 @@ describe("element membrane", () => {
   });
 
   it("relays a boundary event outward as a bubbling, frozen CustomEvent", async () => {
-    const records: EditorRecords = { emissions: [], disposed: [] };
+    const records = makeRecords();
     defineVelkrenElement("velkren-editor-out", editorMembrane(records));
     const editor = await placeEditor("velkren-editor-out", "z");
 
@@ -245,6 +251,65 @@ describe("element membrane", () => {
     expect(event.defaultPrevented).toBe(false);
     expect(event.detail).toEqual({ editor: "z" });
     expect(Object.isFrozen(event.detail)).toBe(true);
+  });
+
+  it("projects into an open shadow root and works through it", async () => {
+    const records = makeRecords();
+    defineVelkrenElement("velkren-editor-shadow", {
+      ...editorMembrane(records),
+      shadow: "open",
+      styles: "button { color: red; }",
+    });
+    const el = document.createElement("velkren-editor-shadow");
+    el.setAttribute("editor-id", "s");
+    document.body.appendChild(el);
+    await waitFor(() => records.mounted.includes("s"));
+
+    const shadow = el.shadowRoot;
+    if (shadow === null) throw new Error("expected an open shadow root");
+    // Projection is inside the shadow root; light DOM stays empty.
+    expect(el.querySelector("button")).toBeNull();
+    const button = shadow.querySelector("button");
+    if (button === null) throw new Error("no button in shadow");
+    // Identity anchor is on the per-root container inside the shadow root.
+    expect(
+      shadow.querySelector(`[${PROJECTION_IDENTITY_ATTRIBUTE}]`),
+    ).not.toBeNull();
+    // Only host-provided styles are inside the shadow root.
+    expect(shadow.querySelector("style")?.textContent).toContain("color: red");
+
+    // Interaction is captured through the shadow (no composedPath), and the
+    // outward event still bubbles to a host ancestor in the light DOM.
+    const received: CustomEvent[] = [];
+    const handler = (event: Event): void => {
+      received.push(event as CustomEvent);
+    };
+    document.body.addEventListener("velkren:submitted", handler);
+    try {
+      button.dispatchEvent(new Event("click", { bubbles: true }));
+      await waitFor(() => records.emissions.includes("s"));
+      await waitFor(() => received.length > 0);
+    } finally {
+      document.body.removeEventListener("velkren:submitted", handler);
+    }
+    expect(received[0]?.detail).toEqual({ editor: "s" });
+  });
+
+  it("supports a closed shadow with no light-DOM leakage", async () => {
+    const records = makeRecords();
+    defineVelkrenElement("velkren-editor-closed", {
+      ...editorMembrane(records),
+      shadow: "closed",
+    });
+    const el = document.createElement("velkren-editor-closed");
+    el.setAttribute("editor-id", "c");
+    document.body.appendChild(el);
+    await waitFor(() => records.mounted.includes("c"));
+
+    // Closed: the shadow root is not exposed and nothing leaks into light DOM.
+    expect(el.shadowRoot).toBeNull();
+    expect(el.querySelector("button")).toBeNull();
+    expect(el.children.length).toBe(0);
   });
 
   it("surfaces a disposal failure without swallowing it", async () => {

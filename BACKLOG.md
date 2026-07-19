@@ -141,12 +141,48 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## extract-neutral-composition
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Extract a renderer-agnostic component/template/event/layout composition and a common adapter test-drive surface (identity lookup, interaction simulation) so the _same_ composition can be mounted on any adapter with only the injected renderer swapped — the gold-standard neutrality proof.
 - **Dependencies**: `add-react-adapter`
 - **Why next**: The Solid and React validations are currently parallel proofs; a shared composition would prove the identical core composition runs unchanged across frameworks.
 - **Acceptance**: One composition mounts on both the SolidJS and React adapters and passes the same isolation, emission, and disposal assertions.
 - **Deferred**: Additional adapters.
+
+## refactor-container-anchor
+
+- **Status**: done
+- **Outcome**: Relocate the identity attribute and interaction capture from the rendered root element onto the adapter-owned per-root container in both adapters; React's interaction capture changes from synthetic handler props to a native container listener. Behaviour-preserving at the port boundary.
+- **Dependencies**: `add-react-adapter`
+- **Why next**: A component's root view could not be a framework-native component while the runtime's identity/interaction anchor lived on the rendered element; moving the anchor to the container is the prerequisite for a root-capable view registry.
+- **Acceptance**: Identity, commit-repair, interaction delivery, and two-editor isolation/disposal all hold with the anchor on the container; no `@velkren/core` change.
+- **Deferred**: The view registry itself (`add-view-registry`).
+
+## add-view-registry
+
+- **Status**: done
+- **Outcome**: Add an optional per-adapter view registry mapping a node `kind` to a framework-native view, consulted for every node including the root, falling back to primitives; a registered leaf view receives the node's attributes as props. Lets an app opt a component's view into its framework's UI library while `@velkren/core` stays neutral and ships no bindings.
+- **Dependencies**: `refactor-container-anchor`
+- **Why next**: Primitives-only rendering blocked using any existing UI-library component; the registry is the open seam (native views are a registration, primitives the default).
+- **Acceptance**: A registered view renders in place of the primitive with attributes as props, including at the root, and its interaction bubbles to the container and delivers through the port; unregistered kinds fall back; core references no view type.
+- **Deferred**: Native views holding Velkren-managed children (nesting); a typed view-props contract; per-node primitive-vs-view Solid update to preserve root focus.
+
+## add-native-nested-views
+
+- **Status**: candidate
+- **Outcome**: Let a registered native view host Velkren-managed children (a native container with managed children inside), by mounting a child projection into the native component via a portal/ref with lifecycle coordination.
+- **Dependencies**: `add-view-registry`
+- **Why next**: The view registry is leaf-only; real UI (a native Dialog wrapping managed content) needs the native-parent / Velkren-child boundary.
+- **Acceptance**: A registered native view hosts a managed child whose projection mounts inside it and releases with the parent, with no identity/interaction leakage.
+- **Deferred**: Mixed-framework trees.
+
+## add-typed-view-props
+
+- **Status**: candidate
+- **Outcome**: Promote the view props channel from the dual-use `attributes` to a distinct core view node (`{ viewId, props, slots }`) with a typed props contract, so view props are validated and separated from HTML attributes.
+- **Dependencies**: `add-view-registry`
+- **Why next**: Reusing `attributes` as props is untyped and semantically dual-use; a typed view node removes the ambiguity once the mechanism has proven out.
+- **Acceptance**: A view node carries typed props distinct from primitive attributes; adapters consume it; core validates the props contract.
+- **Deferred**: Native nesting.
 
 ## add-vue-adapter
 

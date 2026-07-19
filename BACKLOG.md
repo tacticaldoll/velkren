@@ -211,6 +211,15 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Acceptance**: A boundary event dispatches a non-cancelable bubbling CustomEvent carrying only a frozen snapshot; `preventDefault` does not steer the runtime; core marks no event boundary-public.
 - **Deferred**: Host→runtime veto / negotiation events.
 
+## extract-shared-membrane
+
+- **Status**: done
+- **Outcome**: Extract the renderer-agnostic membrane core into a new `@velkren/element` package parameterized by an injected renderer factory; refactor the Solid adapter onto it (behavior-preserving) and add the same thin wrapper to the React adapter. The same membrane core now runs on both shipped adapters.
+- **Dependencies**: `add-react-adapter`, `add-element-membrane`
+- **Why next**: The membrane was Solid-only, contradicting its renderer-agnostic premise; the code was identical but for the renderer factory.
+- **Acceptance**: `@velkren/element` depends on `@velkren/core` only; the Solid membrane and durable validations pass unchanged; a React validation reproduces mount, isolation, interaction, outward event, and disposal through the boundary; no `@velkren/core` or renderer-port change.
+- **Deferred**: A Vue membrane (awaits `add-vue-adapter`); inbound data crossings.
+
 ## add-native-nested-views
 
 - **Status**: candidate

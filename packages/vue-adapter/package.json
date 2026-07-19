@@ -1,0 +1,26 @@
+{
+  "name": "@velkren/vue-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@velkren/core": "0.1.0",
+    "@velkren/element": "0.1.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@velkren/two-editor-validation": "0.1.0"
+  }
+}

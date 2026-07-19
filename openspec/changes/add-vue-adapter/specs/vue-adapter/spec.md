@@ -36,6 +36,24 @@ reading a registration map at event time so registration needs no re-render.
 - **WHEN** an interaction of a registered type occurs inside a Vue root's container
 - **THEN** the adapter delivers an immutable snapshot through the port and never passes a live node or native event inward
 
+### Requirement: Vue view registry
+
+The Vue adapter SHALL accept an optional view registry mapping a node `kind` to a
+native Vue view, consulted for every node including the root. On a hit it SHALL render
+the registered view with the node's attributes as props; on a miss it SHALL fall back
+to the primitive path (`h(kind, …)`). `@velkren/core` MUST NOT reference the view type
+or the registry.
+
+#### Scenario: A registered view renders with attributes as props
+
+- **WHEN** a Vue renderer is configured with a view registered under a `kind` and a node with that `kind` is projected
+- **THEN** the registered view renders with the node's attributes as its props
+
+#### Scenario: An unregistered kind falls back to the primitive path
+
+- **WHEN** a node's `kind` is not in the registry
+- **THEN** the adapter renders it via `h(kind, …)`, unchanged
+
 ### Requirement: Vue two-editor validation
 
 The Vue adapter SHALL pass the shared two-editor validation

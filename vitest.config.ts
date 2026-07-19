@@ -15,7 +15,7 @@ export default defineConfig({
   test: {
     server: {
       deps: {
-        inline: ["solid-js", "react", "react-dom"],
+        inline: ["solid-js", "react", "react-dom", "vue"],
       },
     },
   },

@@ -17,6 +17,7 @@ function readPackage(relativeUrl: string): {
 
 const corePkg = readPackage("../../core/package.json");
 const adapterPkg = readPackage("../package.json");
+const elementPkg = readPackage("../../element/package.json");
 
 describe("adopt-narrowly boundary", () => {
   it("keeps @velkren/core free of runtime dependencies", () => {
@@ -34,6 +35,16 @@ describe("adopt-narrowly boundary", () => {
     expect(adapterDeps).toHaveProperty("@velkren/core");
     expect(adapterDeps).toHaveProperty("react");
     expect(adapterDeps).toHaveProperty("react-dom");
+  });
+
+  it("keeps the shared membrane core free of any renderer", () => {
+    // @velkren/element is the renderer-agnostic membrane core: it depends on
+    // @velkren/core only — never Solid or React — so the core is provably
+    // renderer-agnostic in structure, not just intent.
+    expect(elementPkg.name).toBe("@velkren/element");
+    expect(Object.keys(elementPkg.dependencies ?? {})).toEqual([
+      "@velkren/core",
+    ]);
   });
 
   it("exposes a renderer that satisfies the RendererPort contract", () => {

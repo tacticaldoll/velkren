@@ -1,5 +1,5 @@
 {
-  "name": "@velkren/solid-adapter",
+  "name": "@velkren/element",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,8 +16,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@velkren/core": "0.1.0",
-    "@velkren/element": "0.1.0",
-    "solid-js": "^1.9.0"
+    "@velkren/core": "0.1.0"
   }
 }

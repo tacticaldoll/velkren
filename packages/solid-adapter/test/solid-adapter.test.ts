@@ -20,29 +20,36 @@ describe("SolidJS renderer port", () => {
   it("mounts a plan to the DOM with its identity attribute", () => {
     const renderer = createSolidRenderer();
     renderer.createRoot("root-1", node("section", { role: "main" }));
-    const element = renderer.container.firstElementChild as HTMLElement;
-    expect(element.tagName.toLowerCase()).toBe("section");
-    expect(element.getAttribute("role")).toBe("main");
-    expect(element.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe("root-1");
+    // Identity is anchored on the per-root container; content lives inside it.
+    const rootContainer = renderer.container.firstElementChild as HTMLElement;
+    const content = rootContainer.firstElementChild as HTMLElement;
+    expect(content.tagName.toLowerCase()).toBe("section");
+    expect(content.getAttribute("role")).toBe("main");
+    expect(rootContainer.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+      "root-1",
+    );
   });
 
   it("reactively updates content on commit", async () => {
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("div", { state: "a" }));
-    const element = renderer.container.firstElementChild as HTMLElement;
+    const content = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
     renderer.commit(root, "root-1", node("div", { state: "b" }));
     await Promise.resolve();
-    expect(element.getAttribute("state")).toBe("b");
+    expect(content.getAttribute("state")).toBe("b");
   });
 
   it("repairs a removed identity attribute on commit", async () => {
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("div"));
-    const element = renderer.container.firstElementChild as HTMLElement;
-    element.removeAttribute(PROJECTION_IDENTITY_ATTRIBUTE);
+    const rootContainer = renderer.container.firstElementChild as HTMLElement;
+    rootContainer.removeAttribute(PROJECTION_IDENTITY_ATTRIBUTE);
     renderer.commit(root, "root-1", node("div", { state: "x" }));
     await Promise.resolve();
-    expect(element.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe("root-1");
+    expect(rootContainer.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+      "root-1",
+    );
     expect(renderer.readIdentity(root)).toBe("root-1");
   });
 
@@ -66,7 +73,8 @@ describe("SolidJS renderer port", () => {
 
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("input"));
-    const element = renderer.container.firstElementChild as HTMLInputElement;
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
 
     let pending: Promise<unknown> | undefined;
     renderer.registerInteraction(root, "input", (snapshot) => {
@@ -75,8 +83,9 @@ describe("SolidJS renderer port", () => {
       });
     });
 
-    element.value = "hello";
-    element.dispatchEvent(new Event("input"));
+    input.value = "hello";
+    // Bubbles from the content element to the container's native listener.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     const transcript = (await pending) as ReadonlyArray<{
       phase: string;
       snapshot?: JsonObject;
@@ -93,7 +102,8 @@ describe("SolidJS renderer port", () => {
   it("removes a registration through its handle without touching others", () => {
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("input"));
-    const element = renderer.container.firstElementChild as HTMLInputElement;
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
 
     let kept = 0;
     let removed = 0;
@@ -104,11 +114,11 @@ describe("SolidJS renderer port", () => {
       removed += 1;
     });
 
-    element.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     expect([kept, removed]).toEqual([1, 1]);
 
     registration.remove();
-    element.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     expect([kept, removed]).toEqual([2, 1]);
   });
 
@@ -134,12 +144,13 @@ describe("SolidJS renderer port", () => {
 
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("input", { state: "a" }));
-    const element = renderer.container.firstElementChild as HTMLInputElement;
+    const content = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
 
     // react
     renderer.commit(root, "root-1", node("input", { state: "b" }));
     await Promise.resolve();
-    expect(element.getAttribute("state")).toBe("b");
+    expect(content.getAttribute("state")).toBe("b");
 
     // emit
     let emissions = 0;
@@ -149,8 +160,8 @@ describe("SolidJS renderer port", () => {
         value: typeof snapshot.value === "string" ? snapshot.value : "",
       });
     });
-    element.value = "one";
-    element.dispatchEvent(new Event("input"));
+    content.value = "one";
+    content.dispatchEvent(new Event("input", { bubbles: true }));
     expect(emissions).toBe(1);
 
     // unmount
@@ -159,13 +170,13 @@ describe("SolidJS renderer port", () => {
     expect(renderer.elementForIdentity("root-1")).toBeUndefined();
 
     // no listener remains and no reactive effect runs after disposal
-    element.dispatchEvent(new Event("input"));
+    content.dispatchEvent(new Event("input", { bubbles: true }));
     expect(emissions).toBe(1);
     // simulate on the removed identity is a no-op
     renderer.simulateInteraction("root-1", "input");
     expect(emissions).toBe(1);
     renderer.commit(root, "root-1", node("input", { state: "c" }));
     await Promise.resolve();
-    expect(element.getAttribute("state")).toBe("b");
+    expect(content.getAttribute("state")).toBe("b");
   });
 });

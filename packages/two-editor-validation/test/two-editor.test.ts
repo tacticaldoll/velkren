@@ -41,10 +41,11 @@ describe("two-editor validation", () => {
     const one = await app.createEditor("one");
 
     await one.retemplate(app.altTemplate());
-    const element = renderer.elementForIdentity(
+    // Identity is on the per-root container; authored content is its child.
+    const container = renderer.elementForIdentity(
       one.root.identity,
     ) as HTMLElement;
-    expect(element.getAttribute("version")).toBe("2");
+    expect(container.firstElementChild?.getAttribute("version")).toBe("2");
 
     // Same root, unchanged binding: the business event still fires.
     await one.activate();

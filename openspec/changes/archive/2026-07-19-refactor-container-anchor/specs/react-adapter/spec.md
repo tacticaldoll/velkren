@@ -1,24 +1,4 @@
-# react-adapter Specification
-
-## Purpose
-
-TBD - created by archiving change add-react-adapter. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Isolated React adapter package
-
-React SHALL be adopted only inside a dedicated adapter package that implements the framework-independent `RendererPort`. `@velkren/core` MUST NOT depend on React, import DOM or React types, or import anything from the adapter package, and the adapter MUST depend on `@velkren/core` only through its public contracts.
-
-#### Scenario: Core stays free of the adapter and React
-
-- **WHEN** the core package is built and its test suite runs in Node.js
-- **THEN** it compiles and passes without React, DOM, or the adapter, and without importing the adapter
-
-#### Scenario: Adapter implements the port
-
-- **WHEN** the React adapter package is loaded
-- **THEN** it exposes a renderer that satisfies the `RendererPort` contract, including `registerInteraction`, and consumes `@velkren/core` only through its public API
+## MODIFIED Requirements
 
 ### Requirement: Reconciler-driven mount and commit with synchronous flushing
 
@@ -76,15 +56,6 @@ The concrete React renderer SHALL expose adapter-local test helpers, separate fr
 - **WHEN** the validation resolves an editor's element by identity and simulates its interaction
 - **THEN** a native DOM event bubbles to the adapter's container listener, which reports the interaction and delivers a snapshot through the port, without core gaining any DOM-selector or simulation API
 
-### Requirement: Cross-framework validation of renderer independence
-
-The adapter package SHALL validate renderer independence by mounting the **shared** renderer-agnostic two-editor composition (`createEditorApp` from `@velkren/two-editor-validation`) with the React renderer injected, rather than a parallel React-specific copy. Two editors MUST coexist with distinct identities, each editor's interaction MUST emit its business semantic event through the interaction-binding contract, and destroying one editor MUST release only its owned roots and registrations while the other remains functional — the same guarantees the SolidJS injection satisfies, proving the identical composition is renderer-independent.
-
-#### Scenario: Core semantics hold on React through the shared composition
-
-- **WHEN** the shared two-editor composition is mounted with the React renderer injected, exercised, and one editor is destroyed
-- **THEN** identity isolation, business-event emission through the binding, and scoped disposal all hold, with the surviving editor still emitting its event — with no React-specific copy of the composition
-
 ### Requirement: Browser-environment adapter tests
 
 The adapter SHALL be verified in a package-scoped browser-like test environment. The tests MUST exercise mount, reconciler commit, interaction registration, semantic-event emission through the binding, and disposal, MUST render deterministically at the port boundary (synchronous flush), and MUST NOT require or alter the core package's Node-only test environment.
@@ -93,6 +64,16 @@ The adapter SHALL be verified in a package-scoped browser-like test environment.
 
 - **WHEN** the React adapter test suite runs
 - **THEN** mount, commit, interaction registration, emission, and disposal are exercised against a DOM surface in the adapter's own environment while the core suite remains Node-only
+
+## REMOVED Requirements
+
+### Requirement: Declarative interaction registration woven into render
+
+**Reason**: The synthetic-handler-prop model anchors interaction capture on the rendered root element, which cannot survive the root element becoming a framework-native view (the coming `add-view-registry` capability) and cannot be attached to the adapter-owned container. It is replaced by the container-anchored native-listener model below.
+
+**Migration**: Interactions are now captured by a native listener the adapter attaches to its per-root container; a real DOM event bubbles to it. `registerInteraction` records interest per interaction type and the container's listener consults it; no synthetic handler props are wired, and no re-render is required to register.
+
+## ADDED Requirements
 
 ### Requirement: Container-anchored interaction capture
 

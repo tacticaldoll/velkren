@@ -21,7 +21,7 @@ import {
 
 import {
   createReactRenderer,
-  snapshotReactEvent,
+  snapshotNativeEvent,
   type ReactRenderer,
 } from "../src/index.js";
 
@@ -137,10 +137,14 @@ describe("React renderer port", () => {
       node("section", { role: "main" }),
     );
     // Present immediately after createRoot returns — no await (flushSync).
-    const element = renderer.elementForIdentity("root-1");
-    expect(element?.tagName.toLowerCase()).toBe("section");
-    expect(element?.getAttribute("role")).toBe("main");
-    expect(element?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe("root-1");
+    // Identity is anchored on the per-root container; content lives inside it.
+    const container = renderer.elementForIdentity("root-1");
+    const content = container?.firstElementChild;
+    expect(content?.tagName.toLowerCase()).toBe("section");
+    expect(content?.getAttribute("role")).toBe("main");
+    expect(container?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+      "root-1",
+    );
     expect(renderer.readIdentity(root)).toBe("root-1");
   });
 
@@ -152,34 +156,35 @@ describe("React renderer port", () => {
       children: [node("input")],
       slots: {},
     });
-    const element = renderer.elementForIdentity("root-1");
-    expect(element?.getAttribute("class")).toBe("field");
-    expect(element?.getAttribute("for")).toBe("name");
-    expect(element?.firstElementChild?.tagName.toLowerCase()).toBe("input");
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(content?.getAttribute("class")).toBe("field");
+    expect(content?.getAttribute("for")).toBe("name");
+    expect(content?.firstElementChild?.tagName.toLowerCase()).toBe("input");
   });
 
   it("updates content and repairs a removed identity attribute on commit", () => {
     const renderer = createReactRenderer();
     const root = renderer.createRoot("root-1", node("div", { state: "a" }));
-    const element = renderer.elementForIdentity("root-1");
-    expect(element).toBeDefined();
-    if (element === undefined) return;
+    const container = renderer.elementForIdentity("root-1");
+    expect(container).toBeDefined();
+    if (container === undefined) return;
 
-    element.removeAttribute(PROJECTION_IDENTITY_ATTRIBUTE);
+    container.removeAttribute(PROJECTION_IDENTITY_ATTRIBUTE);
     renderer.commit(root, "root-1", node("div", { state: "b" }));
-    // Synchronous: no await. Content updated and identity restored.
-    expect(element.getAttribute("state")).toBe("b");
-    expect(element.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe("root-1");
+    // Synchronous: no await. Content updated and identity restored on container.
+    expect(container.firstElementChild?.getAttribute("state")).toBe("b");
+    expect(container.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+      "root-1",
+    );
     expect(renderer.readIdentity(root)).toBe("root-1");
   });
 
-  it("snapshots a synthetic-like event without leaking the live node", () => {
+  it("snapshots a native event without leaking the live node", () => {
     const input = document.createElement("input");
     input.value = "typed";
-    const snapshot = snapshotReactEvent({
-      type: "input",
-      target: input,
-    } as unknown as Parameters<typeof snapshotReactEvent>[0]);
+    const event = new Event("input");
+    Object.defineProperty(event, "target", { value: input });
+    const snapshot = snapshotNativeEvent(event);
     expect(snapshot).toEqual({ type: "input", value: "typed" });
     expect(Object.isFrozen(snapshot)).toBe(true);
   });
@@ -221,14 +226,15 @@ describe("React renderer port", () => {
     expect(calls).toBe(1);
   });
 
-  it("delivers an input interaction through the onInput handler prop", () => {
+  it("delivers an input interaction through the container listener", () => {
     const renderer = createReactRenderer();
     const root = renderer.createRoot("root-1", node("input"));
-    const element = renderer.elementForIdentity("root-1") as HTMLInputElement;
-    element.value = "typed";
+    const input = renderer.elementForIdentity("root-1")
+      ?.firstElementChild as HTMLInputElement;
+    input.value = "typed";
 
     let delivered: JsonObject | undefined;
-    // The other half of the type→handler-prop map: input → onInput.
+    // A second interaction type on the same container listener: input.
     renderer.registerInteraction(root, "input", (snapshot) => {
       delivered = snapshot;
     });
@@ -255,9 +261,11 @@ describe("React renderer port", () => {
       children: [],
       slots: {},
     });
-    const element = bound.renderer.elementForIdentity(bound.root.identity);
-    expect(element?.getAttribute("state")).toBe("committed");
-    expect(element?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+    const container = bound.renderer.elementForIdentity(bound.root.identity);
+    expect(container?.firstElementChild?.getAttribute("state")).toBe(
+      "committed",
+    );
+    expect(container?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
       bound.root.identity,
     );
 
@@ -283,7 +291,7 @@ describe("React renderer port", () => {
       onFailure: (failure) => failures.push(failure),
     });
 
-    // No exception escapes the synthetic-event handler.
+    // No exception escapes the container's native listener.
     expect(() =>
       bound.renderer.simulateInteraction(bound.root.identity, "click"),
     ).not.toThrow();

@@ -168,7 +168,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-element-membrane
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Add a custom-element "membrane" (minimal increment): an adapter-side distribution boundary that embeds a Velkren component in a non-Velkren host page as a light-DOM, ephemeral custom element, while all authority stays inside a runtime the membrane mints and owns. Purely additive on the Solid adapter's `createSolidRenderer({ container })`; `@velkren/core` unchanged.
 - **Dependencies**: `refactor-container-anchor`
 - **Why next**: Every path to a Velkren component started inside a Velkren-aware app; the membrane is the distribution seam, and the container anchor made the element a viable boundary.

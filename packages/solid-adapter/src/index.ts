@@ -254,6 +254,15 @@ function stringifyAttribute(value: JsonValue): string {
 export interface MembraneMountContext {
   readonly renderer: SolidRenderer;
   readonly element: HTMLElement;
+  /**
+   * Emit a boundary event outward as a `CustomEvent` on the host element:
+   * bubbling, non-cancelable, with a frozen `detail`. The host factory wires this
+   * to its own event observation (the event trace or a relayer); the membrane owns
+   * the DOM mechanics while the host owns the internal-event-to-outward-name
+   * mapping. The outward name is host-chosen, decoupled from the internal
+   * EventClass, and `preventDefault` carries no path back to the runtime.
+   */
+  readonly dispatchBoundaryEvent: (name: string, detail: JsonObject) => void;
 }
 
 /**
@@ -321,8 +330,26 @@ function getMembraneBase(): CustomElementConstructor {
       // definition of lifecycle.
       this.#generation += 1;
       const renderer = createSolidRenderer({ container: this });
+      const dispatchBoundaryEvent = (
+        name: string,
+        detail: JsonObject,
+      ): void => {
+        // The membrane owns the DOM mechanics: notification, not negotiation.
+        // The arrow captures the element lexically as `this`.
+        this.dispatchEvent(
+          new CustomEvent(name, {
+            detail: Object.freeze(detail),
+            bubbles: true,
+            cancelable: false,
+          }),
+        );
+      };
       this.#mount = Promise.resolve(
-        this.#config().mount({ renderer, element: this }),
+        this.#config().mount({
+          renderer,
+          element: this,
+          dispatchBoundaryEvent,
+        }),
       ).catch((error: unknown) => {
         reportMembraneError(error);
         return undefined;

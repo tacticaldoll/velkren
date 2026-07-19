@@ -58,7 +58,11 @@ interface EditorRecords {
  */
 function editorMembrane(records: EditorRecords): MembraneConfig {
   return {
-    async mount({ renderer, element }): Promise<MembraneMount> {
+    async mount({
+      renderer,
+      element,
+      dispatchBoundaryEvent,
+    }): Promise<MembraneMount> {
       const id = element.getAttribute("editor-id") ?? "?";
       const runtime = createRuntime({ id: `editor-${id}` });
       const components = createComponentRuntime(runtime);
@@ -68,6 +72,11 @@ function editorMembrane(records: EditorRecords): MembraneConfig {
           if (record.classId === submitted.id && record.phase === "completed") {
             const editor = record.snapshot?.editor;
             if (typeof editor === "string") records.emissions.push(editor);
+            // The host maps its internal event to an outward name and relays it
+            // through the membrane's dispatch helper.
+            if (record.snapshot !== undefined) {
+              dispatchBoundaryEvent("velkren:submitted", record.snapshot);
+            }
           }
         },
       });
@@ -204,6 +213,38 @@ describe("element membrane", () => {
     expect(() =>
       defineVelkrenElement("velkren-editor-dup", editorMembrane(records)),
     ).toThrow();
+  });
+
+  it("relays a boundary event outward as a bubbling, frozen CustomEvent", async () => {
+    const records: EditorRecords = { emissions: [], disposed: [] };
+    defineVelkrenElement("velkren-editor-out", editorMembrane(records));
+    const editor = await placeEditor("velkren-editor-out", "z");
+
+    // Listen on an ancestor to prove the event bubbles out of the element.
+    const received: CustomEvent[] = [];
+    const handler = (event: Event): void => {
+      const custom = event as CustomEvent;
+      custom.preventDefault(); // non-cancelable: must not steer anything
+      received.push(custom);
+    };
+    document.body.addEventListener("velkren:submitted", handler);
+    try {
+      clickButton(editor);
+      await waitFor(() => received.length > 0);
+    } finally {
+      document.body.removeEventListener("velkren:submitted", handler);
+    }
+
+    const event = received[0];
+    if (event === undefined) throw new Error("no boundary event received");
+    // Outward name is host-chosen, decoupled from the internal EventClass id.
+    expect(event.type).toBe("velkren:submitted");
+    expect(event.type).not.toBe(submitted.id);
+    expect(event.bubbles).toBe(true);
+    expect(event.cancelable).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(event.detail).toEqual({ editor: "z" });
+    expect(Object.isFrozen(event.detail)).toBe(true);
   });
 
   it("surfaces a disposal failure without swallowing it", async () => {

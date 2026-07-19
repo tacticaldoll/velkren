@@ -14,19 +14,23 @@ import {
  * DOM types live only in this package; `@velkren/core` never imports them.
  */
 export interface SolidRenderer extends RendererPort {
-  /** The DOM element under which projected roots are mounted. */
+  /** The shared host under which each root's per-root container is mounted. */
   readonly container: HTMLElement;
-  /** The projected root element carrying `identity`, or undefined if removed. */
+  /** The per-root container carrying `identity`, or undefined if removed. */
   elementForIdentity(identity: string): HTMLElement | undefined;
   /**
-   * Drive a native interaction on the root carrying `identity` through the
-   * adapter's own event layer, exercising every registered capture. A no-op if
-   * the root was removed. This is a validation/dev affordance, not a port op.
+   * Drive a native interaction on the root carrying `identity` so a DOM event
+   * bubbles to the adapter's container listener, exercising every registered
+   * capture. A no-op if the root was removed. This is a validation/dev
+   * affordance, not a port op.
    */
   simulateInteraction(identity: string, type: string): void;
 }
 
 interface SolidAdapterRoot {
+  /** The adapter-owned per-root container: identity + interaction anchor. */
+  readonly rootContainer: HTMLElement;
+  /** The rendered root content element, mounted inside `rootContainer`. */
   readonly element: HTMLElement;
   readonly identity: string;
   setNode(node: RenderNode): void;
@@ -49,13 +53,21 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
     createRoot(identity: string, node: RenderNode): AdapterRoot {
       let root!: SolidAdapterRoot;
       createRoot((dispose) => {
+        // The per-root container is the anchor; the rendered content lives
+        // inside it. Identity and the interaction listener sit on the container.
+        const rootContainer = document.createElement("div");
         const element = document.createElement(node.kind);
+        rootContainer.appendChild(element);
         const [current, setNode] = createSignal<RenderNode>(node);
         createRenderEffect(() => {
-          renderInto(element, current(), identity);
+          // Re-stamp identity on the container each render so a commit repairs
+          // an out-of-band-removed attribute (commit-repair contract).
+          rootContainer.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
+          renderInto(element, current());
         });
         const listeners: { type: string; listener: EventListener }[] = [];
         root = {
+          rootContainer,
           element,
           identity,
           disposed: false,
@@ -65,14 +77,14 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
           },
           dispose() {
             for (const { type, listener } of listeners) {
-              element.removeEventListener(type, listener);
+              rootContainer.removeEventListener(type, listener);
             }
             listeners.length = 0;
             dispose();
           },
         };
       });
-      host.appendChild(root.element);
+      host.appendChild(root.rootContainer);
       rootsByIdentity.set(identity, root);
       return root;
     },
@@ -85,8 +97,9 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
 
     readIdentity(root: AdapterRoot): string | undefined {
       return (
-        asRoot(root).element.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE) ??
-        undefined
+        asRoot(root).rootContainer.getAttribute(
+          PROJECTION_IDENTITY_ATTRIBUTE,
+        ) ?? undefined
       );
     },
 
@@ -96,7 +109,7 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
       adapterRoot.disposed = true;
       rootsByIdentity.delete(adapterRoot.identity);
       adapterRoot.dispose();
-      adapterRoot.element.remove();
+      adapterRoot.rootContainer.remove();
     },
 
     registerInteraction(
@@ -111,25 +124,27 @@ export function createSolidRenderer(container?: HTMLElement): SolidRenderer {
         deliver(snapshotNativeEvent(event));
       };
       const record = { type, listener };
-      adapterRoot.element.addEventListener(type, listener);
+      adapterRoot.rootContainer.addEventListener(type, listener);
       adapterRoot.listeners.push(record);
       return {
         remove(): void {
           const index = adapterRoot.listeners.indexOf(record);
           if (index === -1) return;
           adapterRoot.listeners.splice(index, 1);
-          adapterRoot.element.removeEventListener(type, listener);
+          adapterRoot.rootContainer.removeEventListener(type, listener);
         },
       };
     },
 
     elementForIdentity(identity: string): HTMLElement | undefined {
-      return rootsByIdentity.get(identity)?.element;
+      return rootsByIdentity.get(identity)?.rootContainer;
     },
 
     simulateInteraction(identity: string, type: string): void {
       const adapterRoot = rootsByIdentity.get(identity);
       if (adapterRoot === undefined || adapterRoot.disposed) return;
+      // Dispatch from the content element so it bubbles to the container's
+      // native listener, exactly as a real interaction would.
       adapterRoot.element.dispatchEvent(new Event(type, { bubbles: true }));
     },
   };
@@ -153,13 +168,8 @@ export function snapshotNativeEvent(event: Event): JsonObject {
   return Object.freeze({ type: event.type, value });
 }
 
-function renderInto(
-  element: HTMLElement,
-  node: RenderNode,
-  identity: string,
-): void {
+function renderInto(element: HTMLElement, node: RenderNode): void {
   applyAttributes(element, node.attributes);
-  element.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
   element.replaceChildren(...node.children.map(buildElement));
 }
 

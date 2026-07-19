@@ -1,4 +1,4 @@
-import { createElement, type ReactElement, type SyntheticEvent } from "react";
+import { createElement, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 import {
@@ -17,13 +17,13 @@ import {
  * package; `@velkren/core` never imports them.
  */
 export interface ReactRenderer extends RendererPort {
-  /** The projected root element carrying `identity`, or undefined if removed. */
+  /** The per-root container carrying `identity`, or undefined if removed. */
   elementForIdentity(identity: string): HTMLElement | undefined;
   /**
-   * Drive a native interaction on the root carrying `identity` so React's own
-   * delegated event system reports it, exercising every registered capture. A
-   * no-op if the root was removed. This is a validation/dev affordance, not a
-   * port op.
+   * Drive a native interaction on the root carrying `identity` so a DOM event
+   * bubbles to the adapter's container listener, exercising every registered
+   * capture. A no-op if the root was removed. This is a validation/dev
+   * affordance, not a port op.
    */
   simulateInteraction(identity: string, type: string): void;
 }
@@ -32,27 +32,19 @@ export interface ReactRenderer extends RendererPort {
 type Deliver = (snapshot: JsonObject) => void;
 
 /**
- * The adapter-owned, per-root registration store. A mutable Map the rendered
- * handlers read at event time so registration needs no re-render and survives a
- * commit's new render (the Map reference is stable across renders).
+ * The adapter-owned, per-root registration store. A mutable Map the container's
+ * native listener reads at event time so registration needs no re-render (the
+ * container, not the rendered content, is the interaction anchor).
  */
 type RegistrationMap = Map<string, Deliver>;
-
-/**
- * React wires only DOM-event-named interaction types through its synthetic-event
- * system. Map the supported interaction types to their handler props; a
- * non-DOM-named custom type has no synthetic prop and is out of scope here.
- */
-const INTERACTION_HANDLER_PROPS: Readonly<Record<string, string>> = {
-  click: "onClick",
-  input: "onInput",
-};
 
 interface ReactAdapterRoot {
   readonly container: HTMLElement;
   readonly reactRoot: Root;
   readonly identity: string;
   readonly registrations: RegistrationMap;
+  /** One native listener per registered interaction type on the container. */
+  readonly listeners: Map<string, EventListener>;
   disposed: boolean;
 }
 
@@ -65,27 +57,27 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
 
   const renderer: ReactRenderer = {
     createRoot(identity: string, node: RenderNode): AdapterRoot {
-      // Each root owns a detached container attached under `document` so
-      // `readIdentity`/queries resolve and React's delegated listener has a live
-      // DOM ancestor to catch bubbling events.
+      // Each root owns a container attached under `document`; it is the anchor
+      // for identity and for the native interaction listener, and it gives the
+      // reconciler a live DOM host to mount the rendered content into.
       const host = container ?? document.body;
       const rootContainer = document.createElement("div");
       host.appendChild(rootContainer);
       const reactRoot = createReactRoot(rootContainer);
-      const registrations: RegistrationMap = new Map();
       // Flush synchronously: the port contract reads the mounted DOM the instant
       // this returns, but `react-dom` otherwise only schedules the render.
       flushSync(() => {
-        reactRoot.render(createElement(VelkrenTree, { node, registrations }));
+        reactRoot.render(createElement(VelkrenTree, { node }));
       });
-      // Identity is stamped imperatively (never a React prop): a re-render alone
-      // would not restore an out-of-band-removed attribute.
+      // Identity is stamped imperatively on the container (never a React prop):
+      // a re-render alone would not restore an out-of-band-removed attribute.
       stampIdentity(rootContainer, identity);
       const root: ReactAdapterRoot = {
         container: rootContainer,
         reactRoot,
         identity,
-        registrations,
+        registrations: new Map(),
+        listeners: new Map(),
         disposed: false,
       };
       rootsByIdentity.set(identity, root);
@@ -96,23 +88,17 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       const adapterRoot = asRoot(root);
       if (adapterRoot.disposed) return;
       flushSync(() => {
-        adapterRoot.reactRoot.render(
-          createElement(VelkrenTree, {
-            node,
-            registrations: adapterRoot.registrations,
-          }),
-        );
+        adapterRoot.reactRoot.render(createElement(VelkrenTree, { node }));
       });
-      // Re-stamp: reconciliation updates content but does not re-apply the
-      // identity attribute, so repair it here (commit-repair contract).
+      // Re-stamp: reconciliation updates content but does not touch the
+      // container's identity attribute, so repair it here (commit-repair).
       stampIdentity(adapterRoot.container, adapterRoot.identity);
     },
 
     readIdentity(root: AdapterRoot): string | undefined {
       return (
-        asRoot(root).container.firstElementChild?.getAttribute(
-          PROJECTION_IDENTITY_ATTRIBUTE,
-        ) ?? undefined
+        asRoot(root).container.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE) ??
+        undefined
       );
     },
 
@@ -121,6 +107,10 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       if (adapterRoot.disposed) return;
       adapterRoot.disposed = true;
       rootsByIdentity.delete(adapterRoot.identity);
+      for (const [type, listener] of adapterRoot.listeners) {
+        adapterRoot.container.removeEventListener(type, listener);
+      }
+      adapterRoot.listeners.clear();
       adapterRoot.registrations.clear();
       adapterRoot.reactRoot.unmount();
       adapterRoot.container.remove();
@@ -132,9 +122,19 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       deliver: Deliver,
     ): InteractionRegistration {
       const adapterRoot = asRoot(root);
-      // No re-render: the rendered handler prop reads this Map at event time, so
-      // recording interest is enough whether it happens before or after mount.
+      // Record interest per type and ensure one native listener on the container
+      // for it. No re-render: the listener reads the Map at event time, so this
+      // takes effect whether it happens before or after mount.
       adapterRoot.registrations.set(type, deliver);
+      if (!adapterRoot.listeners.has(type)) {
+        const listener: EventListener = (event) => {
+          // Snapshot at the adapter boundary; the live node and native event
+          // stay in this package.
+          adapterRoot.registrations.get(type)?.(snapshotNativeEvent(event));
+        };
+        adapterRoot.listeners.set(type, listener);
+        adapterRoot.container.addEventListener(type, listener);
+      }
       return {
         remove(): void {
           if (adapterRoot.registrations.get(type) === deliver) {
@@ -147,10 +147,7 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
     elementForIdentity(identity: string): HTMLElement | undefined {
       const adapterRoot = rootsByIdentity.get(identity);
       if (adapterRoot === undefined || adapterRoot.disposed) return undefined;
-      return (
-        (adapterRoot.container.firstElementChild as HTMLElement | null) ??
-        undefined
-      );
+      return adapterRoot.container;
     },
 
     simulateInteraction(identity: string, type: string): void {
@@ -158,8 +155,8 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
       if (adapterRoot === undefined || adapterRoot.disposed) return;
       const host = adapterRoot.container.firstElementChild;
       if (host === null) return;
-      // A native bubbling event: React's delegated listener on the container
-      // turns it into the synthetic handler → the registered deliver.
+      // A native bubbling event from the content bubbles to the container's
+      // native listener, which snapshots it and invokes the registered deliver.
       host.dispatchEvent(new Event(type, { bubbles: true }));
     },
   };
@@ -168,56 +165,39 @@ export function createReactRenderer(container?: HTMLElement): ReactRenderer {
 }
 
 /**
- * Capture selected synthetic-event fields as an immutable snapshot. The live DOM
- * node, synthetic event object, and React internals are never returned or
- * forwarded (mirrors the SolidJS `snapshotNativeEvent` boundary).
+ * Capture selected native-event fields as an immutable snapshot. The live DOM
+ * node and native event object are never returned or forwarded (mirrors the
+ * SolidJS `snapshotNativeEvent` boundary).
  */
-export function snapshotReactEvent(event: SyntheticEvent): JsonObject {
-  const target: unknown = event.target;
+export function snapshotNativeEvent(event: Event): JsonObject {
+  const target = event.target;
   const value =
     target !== null &&
     typeof target === "object" &&
     "value" in target &&
-    typeof target.value === "string"
-      ? target.value
+    typeof (target as { value: unknown }).value === "string"
+      ? (target as { value: string }).value
       : null;
   return Object.freeze({ type: event.type, value });
 }
 
 interface VelkrenTreeProps {
   readonly node: RenderNode;
-  readonly registrations: RegistrationMap;
 }
 
 /** Render a RenderNode tree with `React.createElement` (no JSX). */
-function VelkrenTree({ node, registrations }: VelkrenTreeProps): ReactElement {
-  return renderNode(node, registrations, true);
+function VelkrenTree({ node }: VelkrenTreeProps): ReactElement {
+  return renderNode(node);
 }
 
-function renderNode(
-  node: RenderNode,
-  registrations: RegistrationMap,
-  isRoot: boolean,
-  key?: string,
-): ReactElement {
+function renderNode(node: RenderNode, key?: string): ReactElement {
   const props: Record<string, unknown> = {};
   if (key !== undefined) props.key = key;
   for (const [name, value] of Object.entries(node.attributes)) {
     props[translateAttribute(name)] = stringifyAttribute(value);
   }
-  if (isRoot) {
-    // Wire every supported handler prop up front so a later registration takes
-    // effect without a re-render; each reads the adapter-owned Map at event time.
-    for (const [type, handlerProp] of Object.entries(
-      INTERACTION_HANDLER_PROPS,
-    )) {
-      props[handlerProp] = (event: SyntheticEvent): void => {
-        registrations.get(type)?.(snapshotReactEvent(event));
-      };
-    }
-  }
   const children = node.children.map((child, index) =>
-    renderNode(child, registrations, false, String(index)),
+    renderNode(child, String(index)),
   );
   return createElement(node.kind, props, ...children);
 }
@@ -234,6 +214,5 @@ function stringifyAttribute(value: JsonValue): string {
 }
 
 function stampIdentity(container: HTMLElement, identity: string): void {
-  const host = container.firstElementChild;
-  if (host !== null) host.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
+  container.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
 }

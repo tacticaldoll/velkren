@@ -6,6 +6,7 @@ import {
 } from "./event-class.js";
 import type { EventRuntime } from "./event-runtime.js";
 import type { CanonicalClassId } from "./identity.js";
+import { isInteractionType, type InteractionType } from "./interaction-type.js";
 import { ManagedStatus } from "./managed-lifecycle.js";
 import {
   projectionInteractionAccessor,
@@ -60,9 +61,14 @@ export interface InteractionBindingHandle {
  */
 export interface InteractionBinding {
   readonly runtime: Runtime;
+  /**
+   * Register a typed InteractionType so it can be bound. A duplicate local slug is
+   * rejected. Raw-string binds need no registration.
+   */
+  registerInteractionType(type: InteractionType): void;
   bind(
     root: RootHandle,
-    type: string,
+    type: InteractionType | string,
     eventClass: EventClass,
     project: InteractionProjection,
   ): InteractionBindingHandle;
@@ -74,6 +80,26 @@ export class DuplicateInteractionRuntimeError extends Error {
   constructor() {
     super("Runtime already has an interaction-binding domain.");
     this.name = "DuplicateInteractionRuntimeError";
+  }
+}
+
+/** A second InteractionType with the same local slug cannot be registered. */
+export class DuplicateInteractionTypeError extends Error {
+  constructor(readonly localSlug: string) {
+    super(
+      `InteractionType ${JSON.stringify(localSlug)} is already registered.`,
+    );
+    this.name = "DuplicateInteractionTypeError";
+  }
+}
+
+/** An InteractionType must be registered on the domain before it can be bound. */
+export class InteractionTypeNotRegisteredError extends Error {
+  constructor(readonly localSlug: string) {
+    super(
+      `InteractionType ${JSON.stringify(localSlug)} is not registered on this interaction-binding domain.`,
+    );
+    this.name = "InteractionTypeNotRegisteredError";
   }
 }
 
@@ -154,6 +180,7 @@ class DefaultInteractionBinding implements InteractionBinding {
   readonly #accessor;
   readonly #bindings = new WeakMap<RootHandle, Map<string, BindingEntry>>();
   readonly #pending = new Set<Promise<unknown>>();
+  readonly #interactionTypes = new Set<InteractionType>();
 
   readonly #onFailure: InteractionFailureObserver | undefined;
 
@@ -167,9 +194,36 @@ class DefaultInteractionBinding implements InteractionBinding {
     this.#onFailure = onFailure;
   }
 
+  registerInteractionType(type: InteractionType): void {
+    if (!isInteractionType(type)) {
+      throw new TypeError("Value is not an InteractionType.");
+    }
+    for (const existing of this.#interactionTypes) {
+      if (existing.localSlug === type.localSlug) {
+        throw new DuplicateInteractionTypeError(type.localSlug);
+      }
+    }
+    this.#interactionTypes.add(type);
+  }
+
+  /** Resolve a bind `type` to the native event name the port listens for. A
+   * registered InteractionType yields its `native`; a raw string is used as-is. */
+  #resolveType(type: InteractionType | string): string {
+    if (isInteractionType(type)) {
+      if (!this.#interactionTypes.has(type)) {
+        throw new InteractionTypeNotRegisteredError(type.localSlug);
+      }
+      return type.native;
+    }
+    if (typeof type !== "string" || type.length === 0) {
+      throw new TypeError("Interaction type is not a non-empty string.");
+    }
+    return type;
+  }
+
   bind(
     root: RootHandle,
-    type: string,
+    type: InteractionType | string,
     eventClass: EventClass,
     project: InteractionProjection,
   ): InteractionBindingHandle {
@@ -193,25 +247,30 @@ class DefaultInteractionBinding implements InteractionBinding {
     if (typeof project !== "function") {
       throw new TypeError("Interaction projection is not a function.");
     }
-    if (typeof type !== "string" || type.length === 0) {
-      throw new TypeError("Interaction type is not a non-empty string.");
-    }
+    // Resolve to the native event name: a registered InteractionType yields its
+    // `native`; a raw string is used as-is. The port stays string-typed below.
+    const native = this.#resolveType(type);
 
-    const existing = this.#bindings.get(root)?.get(type);
+    const existing = this.#bindings.get(root)?.get(native);
     if (existing?.live === true) {
-      throw new DuplicateInteractionBindingError(type);
+      throw new DuplicateInteractionBindingError(native);
     }
 
-    const entry: BindingEntry = { type, eventClass, project, live: true };
+    const entry: BindingEntry = {
+      type: native,
+      eventClass,
+      project,
+      live: true,
+    };
     // The port registration is created before the entry is recorded, so a port
     // failure leaves no stale binding.
     this.#accessor.registerInteraction(
       root,
-      type,
+      native,
       (snapshot) => this.#deliver(root, entry, snapshot),
       () => {
         entry.live = false;
-        this.#bindings.get(root)?.delete(type);
+        this.#bindings.get(root)?.delete(native);
       },
     );
     let byType = this.#bindings.get(root);
@@ -219,8 +278,8 @@ class DefaultInteractionBinding implements InteractionBinding {
       byType = new Map();
       this.#bindings.set(root, byType);
     }
-    byType.set(type, entry);
-    return Object.freeze({ root, type });
+    byType.set(native, entry);
+    return Object.freeze({ root, type: native });
   }
 
   async settled(): Promise<void> {

@@ -202,9 +202,16 @@ export {
   type ProjectionRuntime,
 } from "./projection-runtime.js";
 export {
+  createInteractionType,
+  isInteractionType,
+  type InteractionType,
+} from "./interaction-type.js";
+export {
   createInteractionBinding,
   DuplicateInteractionBindingError,
   DuplicateInteractionRuntimeError,
+  DuplicateInteractionTypeError,
+  InteractionTypeNotRegisteredError,
   ForeignRootBindingError,
   InvalidInteractionPayloadError,
   NonObjectSnapshotError,

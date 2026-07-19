@@ -240,7 +240,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-vue-adapter
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add a Vue `RendererPort` adapter, exercising the port on a third framework with a template/directive event model.
 - **Dependencies**: `add-react-adapter`
 - **Why next**: A third adapter further hardens the neutrality claim and the declarative-registration shape.

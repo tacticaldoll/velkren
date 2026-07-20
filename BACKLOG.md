@@ -276,7 +276,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-managed-state
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Promote component instance state from a declared-but-inert created value into mutable, owner-validated, inspectable runtime state with an explicit update capability and deterministic cleanup on release (following the runtime's WeakMap-cell ownership pattern; reactivity stays core-owned, with no renderer reactive type in a core contract).
 - **Dependencies**: `add-component-runtime`
 - **Why next**: Velkren's tagline is a runtime for _stateful_ interfaces and `PROJECT.md` claims a `state` domain, but instance state is currently read-only and cannot change. This is the first half of the missing reactive loop.

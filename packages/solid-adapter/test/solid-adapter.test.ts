@@ -124,16 +124,105 @@ describe("SolidJS renderer port", () => {
     );
   });
 
-  it("rebuilds content into the container on commit", async () => {
+  it("updates content in the container on commit", async () => {
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("div", { state: "a" }));
     renderer.commit(root, "root-1", node("div", { state: "b" }));
     await Promise.resolve();
-    // Content is rebuilt into the container each commit (registry-aware helper),
-    // so re-query the current child rather than holding the pre-commit element.
     const content = renderer.container.firstElementChild
       ?.firstElementChild as HTMLElement;
     expect(content.getAttribute("state")).toBe("b");
+  });
+
+  it("preserves an unchanged primitive element across a commit", async () => {
+    const renderer = createSolidRenderer();
+    const tree = (value: string): RenderNode => ({
+      kind: "div",
+      attributes: {},
+      slots: {},
+      children: [
+        { kind: "input", attributes: { value }, children: [], slots: {} },
+      ],
+    });
+    const root = renderer.createRoot("root-1", tree("a"));
+    const container = renderer.container.firstElementChild as HTMLElement;
+    const inputBefore = container.querySelector("input");
+    renderer.commit(root, "root-1", tree("b"));
+    await Promise.resolve();
+    const inputAfter = container.querySelector("input");
+    // The input is the SAME DOM node (reconciled in place), not rebuilt — so a
+    // user's focus and caret survive a state-driven re-commit.
+    expect(inputAfter).toBe(inputBefore);
+    expect(inputAfter?.getAttribute("value")).toBe("b");
+  });
+
+  it("reconciles children in place: patch, append, and remove", async () => {
+    const renderer = createSolidRenderer();
+    const div = (
+      children: { kind: string; name: string }[],
+      v: string,
+    ): RenderNode => ({
+      kind: "div",
+      attributes: { v },
+      slots: {},
+      children: children.map((c) => ({
+        kind: c.kind,
+        attributes: { name: c.name },
+        children: [],
+        slots: {},
+      })),
+    });
+    const root = renderer.createRoot(
+      "root-1",
+      div([{ kind: "input", name: "a" }], "1"),
+    );
+    const container = renderer.container.firstElementChild as HTMLElement;
+    const parent = container.firstElementChild as HTMLElement;
+    const input = parent.querySelector("input");
+
+    // Patch parent attr + patch kept child attr + append a new child.
+    renderer.commit(
+      root,
+      "root-1",
+      div(
+        [
+          { kind: "input", name: "a2" },
+          { kind: "span", name: "s" },
+        ],
+        "2",
+      ),
+    );
+    await Promise.resolve();
+    expect(container.firstElementChild).toBe(parent); // parent preserved
+    expect(parent.getAttribute("v")).toBe("2"); // parent attr patched
+    expect(parent.querySelector("input")).toBe(input); // child preserved
+    expect(input?.getAttribute("name")).toBe("a2"); // child attr patched
+    expect(parent.children.length).toBe(2); // child appended
+    expect(parent.children[1]?.tagName.toLowerCase()).toBe("span");
+
+    // Remove the appended child; the kept input stays the same node.
+    renderer.commit(root, "root-1", div([{ kind: "input", name: "a2" }], "2"));
+    await Promise.resolve();
+    expect(parent.children.length).toBe(1);
+    expect(parent.querySelector("input")).toBe(input);
+  });
+
+  it("removes a dropped attribute on commit", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("div", { keep: "1", drop: "2" }),
+    );
+    const content = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    renderer.commit(root, "root-1", node("div", { keep: "1" }));
+    await Promise.resolve();
+    expect(content.getAttribute("keep")).toBe("1");
+    expect(content.hasAttribute("drop")).toBe(false);
+    // Same element, patched in place rather than rebuilt.
+    expect(renderer.container.firstElementChild?.firstElementChild).toBe(
+      content,
+    );
   });
 
   it("repairs a removed identity attribute on commit", async () => {
@@ -241,7 +330,7 @@ describe("SolidJS renderer port", () => {
     const renderer = createSolidRenderer();
     const root = renderer.createRoot("root-1", node("input", { state: "a" }));
 
-    // react — content is rebuilt on commit, so re-query the live element.
+    // react — content is patched in place on commit; re-query the live element.
     renderer.commit(root, "root-1", node("input", { state: "b" }));
     await Promise.resolve();
     const content = renderer.container.firstElementChild

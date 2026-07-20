@@ -255,3 +255,39 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Why next**: With two adapters naming interactions, an unvalidated free string invites divergence.
 - **Acceptance**: A typed interaction vocabulary is registered and resolved; adapters translate their native event names to it.
 - **Deferred**: Non-DOM-named interaction escape hatches.
+
+## fix-solid-commit-reconcile
+
+- **Status**: active
+- **Outcome**: Make the SolidJS adapter reconcile the projected tree in place on commit (store + `reconcile` + imperative `indexArray`, no JSX) instead of rebuilding it with `replaceChildren`, so an unchanged node keeps its DOM element across a commit. React and Vue already preserve node identity for a fixed-shape tree (verified empirically); SolidJS was the sole outlier.
+- **Dependencies**: `add-view-registry`
+- **Why next**: The reactive state loop re-commits an unchanged-shape tree on every state change; a full rebuild would destroy focus, caret, and selection on the element the user is editing. In-place reconcile is the prerequisite that lets a `state → view` binding re-commit without disturbing live elements.
+- **Acceptance**: After mount then commit with a same-shape tree whose attributes changed, the projected DOM element identity is preserved and attributes update; the existing SolidJS, two-editor, and membrane suites pass unchanged; no `@velkren/core` or `RendererPort` change.
+- **Deferred**: Stable-key reconcile for reordering collections (`add-keyed-node-reconcile`).
+
+## add-keyed-node-reconcile
+
+- **Status**: candidate
+- **Outcome**: Add an optional renderer-neutral stable `key` to `RenderNode` and reconcile children by key across all three adapters (SolidJS swaps `indexArray`→`mapArray`; React/Vue swap `String(index)` for the node key), correcting element reuse when a state-driven child list inserts, removes, or reorders.
+- **Dependencies**: `fix-solid-commit-reconcile`, `add-state-binding`
+- **Why next**: Index-as-key is correct only for fixed-shape trees; the moment state drives a reordering collection, positional reconcile reuses the wrong element and lands focus/input on the wrong row. Earn this only when the first list-binding use case exists.
+- **Acceptance**: A state-driven list that reorders preserves each item's DOM element and focus by key on every adapter; `@velkren/core` gains only the optional `key` field.
+- **Deferred**: Mixed-framework trees.
+
+## add-managed-state
+
+- **Status**: candidate
+- **Outcome**: Promote component instance state from a declared-but-inert created value into mutable, owner-validated, inspectable runtime state with an explicit update capability and deterministic cleanup on release (following the runtime's WeakMap-cell ownership pattern; reactivity stays core-owned, with no renderer reactive type in a core contract).
+- **Dependencies**: `add-component-runtime`
+- **Why next**: Velkren's tagline is a runtime for _stateful_ interfaces and `PROJECT.md` claims a `state` domain, but instance state is currently read-only and cannot change. This is the first half of the missing reactive loop.
+- **Acceptance**: An instance's state is updated through an explicit owned capability, the change is observable and inspectable, a foreign-runtime or released target is rejected, and release clears the state without leaking managed references.
+- **Deferred**: The state→view binding (`add-state-binding`); a core-owned signal graph for derived state.
+
+## add-state-binding
+
+- **Status**: candidate
+- **Outcome**: Add a `state → view` binding domain (mirroring `interaction-binding`): a coordinator over the runtime, projection, and managed-state that derives a `RenderNode` from instance state and re-commits through `projection.commit` when bound state changes, completing the reactive loop `interaction → event → listener → state → binding → commit`.
+- **Dependencies**: `add-managed-state`, `fix-solid-commit-reconcile`
+- **Why next**: With mutable state and in-place reconcile in place, the last missing segment is the derivation that turns a state change into a committed node. Reuses events + listeners as the action/reducer layer.
+- **Acceptance**: A bound state change re-derives the node and commits it, updating only the changed element in place; the derivation stays a pure `(state) → node` with no renderer reactive type crossing into core. The per-adapter controlled-input caveat (a `value` prop without `onChange` renders read-only / setting `.value` on commit can move the caret) is handled so a state-driven text field remains editable with a stable caret.
+- **Deferred**: A core-owned signal graph for auto-tracked derivations; keyed collections (`add-keyed-node-reconcile`).

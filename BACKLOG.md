@@ -258,7 +258,7 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## fix-solid-commit-reconcile
 
-- **Status**: active
+- **Status**: done
 - **Outcome**: Make the SolidJS adapter reconcile the projected tree in place on commit (store + `reconcile` + imperative `indexArray`, no JSX) instead of rebuilding it with `replaceChildren`, so an unchanged node keeps its DOM element across a commit. React and Vue already preserve node identity for a fixed-shape tree (verified empirically); SolidJS was the sole outlier.
 - **Dependencies**: `add-view-registry`
 - **Why next**: The reactive state loop re-commits an unchanged-shape tree on every state change; a full rebuild would destroy focus, caret, and selection on the element the user is editing. In-place reconcile is the prerequisite that lets a `state → view` binding re-commit without disturbing live elements.

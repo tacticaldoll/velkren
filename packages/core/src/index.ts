@@ -240,3 +240,12 @@ export {
   type LayoutPhaseHook,
   type LayoutRuntime,
 } from "./layout-runtime.js";
+export {
+  createStateRuntime,
+  DuplicateStateRuntimeError,
+  InvalidStateValueError,
+  type StateHandle,
+  type StateObserver,
+  type StateRuntime,
+  type StateSubscription,
+} from "./state-runtime.js";

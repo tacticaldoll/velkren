@@ -249,3 +249,11 @@ export {
   type StateRuntime,
   type StateSubscription,
 } from "./state-runtime.js";
+export {
+  createStateBinding,
+  DuplicateStateBindingRuntimeError,
+  RootAlreadyBoundError,
+  type StateBinding,
+  type StateBindingHandle,
+  type StateDerivation,
+} from "./state-binding.js";

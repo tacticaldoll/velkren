@@ -285,9 +285,18 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-state-binding
 
-- **Status**: candidate
+- **Status**: done
 - **Outcome**: Add a `state → view` binding domain (mirroring `interaction-binding`): a coordinator over the runtime, projection, and managed-state that derives a `RenderNode` from instance state and re-commits through `projection.commit` when bound state changes, completing the reactive loop `interaction → event → listener → state → binding → commit`.
 - **Dependencies**: `add-managed-state`, `fix-solid-commit-reconcile`
 - **Why next**: With mutable state and in-place reconcile in place, the last missing segment is the derivation that turns a state change into a committed node. Reuses events + listeners as the action/reducer layer.
-- **Acceptance**: A bound state change re-derives the node and commits it, updating only the changed element in place; the derivation stays a pure `(state) → node` with no renderer reactive type crossing into core. The per-adapter controlled-input caveat (a `value` prop without `onChange` renders read-only / setting `.value` on commit can move the caret) is handled so a state-driven text field remains editable with a stable caret.
-- **Deferred**: A core-owned signal graph for auto-tracked derivations; keyed collections (`add-keyed-node-reconcile`).
+- **Acceptance**: A bound state change re-derives the node and commits it, updating only the changed element in place (proven end to end on the fake renderer with attribute-driven updates); the derivation stays a pure `(state) → node` with no renderer reactive type crossing into core.
+- **Deferred**: Caret-stable, editable text-input value binding across adapters (`add-input-value-binding`); partial/attribute-scoped bindings; multi-state and derived/computed bindings; a core-owned signal graph for auto-tracked derivations; keyed collections (`add-keyed-node-reconcile`).
+
+## add-input-value-binding
+
+- **Status**: candidate
+- **Outcome**: Let state drive a live text input's value across adapters without breaking editing — a state-bound `<input>` reflects the current value yet stays editable with a stable caret. Resolve the per-adapter controlled-input problem (React treats a `value` prop without `onChange` as read-only; setting `.value` on commit can move the caret; Solid sets `value` as an attribute, which does not update a user-edited property).
+- **Dependencies**: `add-state-binding`
+- **Why next**: The reactive loop drives attribute/content views today; a real form needs a state-driven text field that a user can still type into. This is an adapter-spanning widget concern, deliberately split out of `add-state-binding`.
+- **Acceptance**: On each shipped adapter, a state-bound text input shows the current state value, remains editable, and does not jump the caret when state re-commits mid-edit; the mechanism stays inside the adapters with no renderer type in a core contract.
+- **Deferred**: Non-text controlled inputs (checkbox, select) beyond a first text-field proof.

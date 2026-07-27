@@ -189,6 +189,90 @@ describe("React renderer port", () => {
     expect(renderer.readIdentity(root)).toBe("root-1");
   });
 
+  it("does not overwrite a user-typed value once the field is dirty", () => {
+    const renderer = createReactRenderer();
+    const root = renderer.createRoot("root-1", node("input", { value: "a" }));
+    const input = renderer.elementForIdentity("root-1")
+      ?.firstElementChild as HTMLInputElement;
+    expect(input.value).toBe("a");
+
+    // The user types, setting the HTML "dirty value flag."
+    input.value = "typed by user";
+    // A same-value re-commit (the common echo-back case) must not disturb it,
+    // and React must never resync the DOM back to a stale prop value: `value`
+    // never reaches React's props for this node in the first place.
+    renderer.commit(root, "root-1", node("input", { value: "typed by user" }));
+    expect(input.value).toBe("typed by user");
+
+    // A genuinely different, state-driven value still reaches the property.
+    renderer.commit(root, "root-1", node("input", { value: "external" }));
+    expect(input.value).toBe("external");
+  });
+
+  it("skips a redundant assignment and preserves the caret on a same-value re-commit", () => {
+    const renderer = createReactRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("input", { value: "hello" }),
+    );
+    const input = renderer.elementForIdentity("root-1")
+      ?.firstElementChild as HTMLInputElement;
+    input.setSelectionRange(2, 2);
+
+    renderer.commit(root, "root-1", node("input", { value: "hello" }));
+
+    expect(input.value).toBe("hello");
+    expect(input.selectionStart).toBe(2);
+    expect(input.selectionEnd).toBe(2);
+  });
+
+  it("restores the selection range (clamped to the new length) across a real value change", () => {
+    const renderer = createReactRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("input", { value: "hello" }),
+    );
+    const input = renderer.elementForIdentity("root-1")
+      ?.firstElementChild as HTMLInputElement;
+    input.setSelectionRange(3, 5);
+
+    renderer.commit(root, "root-1", node("input", { value: "hi" }));
+
+    expect(input.value).toBe("hi");
+    expect(input.selectionStart).toBe(2); // clamped to the new length
+    expect(input.selectionEnd).toBe(2);
+  });
+
+  it("applies a value crossing without throwing on an input type that rejects selection", () => {
+    const renderer = createReactRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("input", { type: "number", value: "1" }),
+    );
+    const input = renderer.elementForIdentity("root-1")
+      ?.firstElementChild as HTMLInputElement;
+    expect(input.value).toBe("1");
+
+    expect(() => {
+      renderer.commit(
+        root,
+        "root-1",
+        node("input", { type: "number", value: "2" }),
+      );
+    }).not.toThrow();
+    expect(input.value).toBe("2");
+  });
+
+  it("leaves a non-form element's value attribute as an ordinary React prop", () => {
+    const renderer = createReactRenderer();
+    renderer.createRoot("root-1", node("li", { value: "3" }));
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    // <li value> is a real HTML attribute (ordinal value), not a form
+    // control's controlled-value prop -- React (and this adapter) treat it as
+    // an ordinary attribute, unaffected by the input/textarea/select crossing.
+    expect(content?.getAttribute("value")).toBe("3");
+  });
+
   it("snapshots a native event without leaking the live node", () => {
     const input = document.createElement("input");
     input.value = "typed";

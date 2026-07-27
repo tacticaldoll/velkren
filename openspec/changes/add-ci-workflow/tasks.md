@@ -11,8 +11,9 @@
 
 ## 2. Verification
 
-- [ ] 2.1 Push the branch and open a PR so the workflow actually runs on
-      GitHub Actions; confirm all four steps pass in the Actions log
+- [x] 2.1 Push the branch and open a PR so the workflow actually runs on
+      GitHub Actions; confirm all four steps pass in the Actions log (PR #54,
+      run 30251364634, all four steps green in 27s)
 - [x] 2.2 Run the same four commands locally to confirm the workflow's
       commands and order match the local Definition of Done exactly (all
       four passed: build, 387/387 tests, lint, format:check — including the

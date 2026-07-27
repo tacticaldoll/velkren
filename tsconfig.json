@@ -17,7 +17,7 @@
       "path": "./packages/vue-adapter"
     },
     {
-      "path": "./packages/two-editor-validation"
+      "path": "./packages/neutral-composition-fixture"
     }
   ]
 }

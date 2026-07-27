@@ -21,6 +21,6 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@velkren/two-editor-validation": "0.1.0"
+    "@velkren/neutral-composition-fixture": "0.1.0"
   }
 }

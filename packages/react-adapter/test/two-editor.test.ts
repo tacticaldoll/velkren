@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createEditorApp } from "@velkren/two-editor-validation";
+import { createEditorApp } from "@velkren/neutral-composition-fixture";
 
 import { createReactRenderer } from "../src/index.js";
 

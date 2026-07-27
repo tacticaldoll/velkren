@@ -51,7 +51,7 @@ archive, and `package-lock.json`, which is regenerated):
 - No change to `RendererPort`, any `@velkren/core` contract, or any adapter's
   runtime behavior.
 - No rename of the in-repo test files that describe the two-editor-instance
-  *scenario* itself (`two-editor.test.ts` in each adapter). "Two editors" is
+  _scenario_ itself (`two-editor.test.ts` in each adapter). "Two editors" is
   still an accurate description of what those tests exercise — isolation
   between two instances — and is unrelated to the package-identity ambiguity
   this change fixes. Only the package/capability identity changes.
@@ -69,9 +69,9 @@ archive, and `package-lock.json`, which is regenerated):
 - **Capability modeling in OpenSpec**: modeled as a new capability
   (`neutral-composition-fixture`) superseding a retired one
   (`two-editor-validation`), rather than an in-place "modified" spec, since
-  the capability's *identity* (its directory name under `openspec/specs/`)
+  the capability's _identity_ (its directory name under `openspec/specs/`)
   changes, not just its requirements text. `react-adapter` and `vue-adapter`
-  are separate "modified" capabilities: their requirement *behavior* is
+  are separate "modified" capabilities: their requirement _behavior_ is
   unchanged, only the prose identifier they reference.
 - **`package-lock.json`**: not hand-edited. After the rename lands, run
   `npm install` at the root so the lockfile and workspace symlinks

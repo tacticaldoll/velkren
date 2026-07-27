@@ -5,7 +5,7 @@
 composition** (`createEditorApp(renderer)`) that Solid, React, and Vue all mount to
 prove the identical core composition is renderer-independent — "the gold-standard
 neutrality proof." The name "two-editor" no longer names that role: "two" refers to
-two editor *instances* (the isolation guarantee), not adapter count, and now that
+two editor _instances_ (the isolation guarantee), not adapter count, and now that
 three adapters share the fixture, readers reasonably but incorrectly read "two" as
 "validated against two adapters." This change renames the package and its spec to
 `neutral-composition-fixture`, which ties to the already-established "neutral
@@ -28,7 +28,7 @@ changes.
 - Update the `react-adapter` and `vue-adapter` spec prose that names the old package
   or calls the composition "the two-editor composition" / "two-editor validation" to
   instead name `@velkren/neutral-composition-fixture` / "the shared neutral
-  composition." Requirement *behavior* is unchanged — only the identifier and prose
+  composition." Requirement _behavior_ is unchanged — only the identifier and prose
   wording change.
 - No change to `BACKLOG.md`'s historical entries (`validate-two-editor-scenario`,
   `extract-neutral-composition`, etc.) — they describe what happened at the time and

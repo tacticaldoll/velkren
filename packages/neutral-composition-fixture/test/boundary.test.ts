@@ -12,7 +12,7 @@ const pkg = JSON.parse(
 
 describe("consumer-only boundary", () => {
   it("depends at runtime only on the public core package", () => {
-    expect(pkg.name).toBe("@velkren/two-editor-validation");
+    expect(pkg.name).toBe("@velkren/neutral-composition-fixture");
     // The composition is renderer-agnostic: its source imports only core, so no
     // renderer adapter appears among its runtime dependencies.
     expect(Object.keys(pkg.dependencies ?? {}).sort()).toEqual([

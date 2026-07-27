@@ -222,12 +222,12 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-native-nested-views
 
-- **Status**: candidate
-- **Outcome**: Let a registered native view host Velkren-managed children (a native container with managed children inside), by mounting a child projection into the native component via a portal/ref with lifecycle coordination.
+- **Status**: done
+- **Outcome**: Let a registered native view host Velkren-managed children. `RendererPort` gained a required `mountChild(parent, anchor, identity, node)` operation and `ProjectionRuntime` gained `mountChild(parent, anchor, instance, plan)`, cascading the child projection's release into the parent root's own cleanup chain (idempotent either release order). A view opts in by registering a named anchor — Solid via a second call argument, React/Vue via context/provide-inject (not a prop, to keep `ReactView`/`VueView`'s types unchanged) — reusing each adapter's existing root-creation logic (an independent root anchored under the exposed element, not a framework portal). An unmodified, anchor-less view remains an unaffected strict leaf. All three adapters also gained a closest-identity-ancestor containment guard on interaction listeners, since a nested child's container now sits inside its parent's DOM.
 - **Dependencies**: `add-view-registry`
 - **Why next**: The view registry is leaf-only; real UI (a native Dialog wrapping managed content) needs the native-parent / Velkren-child boundary.
 - **Acceptance**: A registered native view hosts a managed child whose projection mounts inside it and releases with the parent, with no identity/interaction leakage.
-- **Deferred**: Mixed-framework trees.
+- **Deferred**: Mixed-framework trees (a Vue parent hosting a React child). Automatic nesting driven by `RenderNode.slots`/a `Reference` fill (still unconsumed by any adapter) — this change added only an explicit, app-called `mountChild`. Multiple children reconciled within one anchor. A re-rendering view that hosts a live child orphaning it (inherits an existing `patchNode` "always rebuild a view" constraint, not new).
 
 ## add-typed-view-props
 

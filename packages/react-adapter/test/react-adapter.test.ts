@@ -20,10 +20,11 @@ import {
   type TemplateNode,
 } from "@velkren/core";
 
-import { createElement } from "react";
+import { createElement, useContext } from "react";
 
 import {
   createReactRenderer,
+  RegisterAnchorContext,
   snapshotNativeEvent,
   type ReactRenderer,
   type ReactView,
@@ -520,5 +521,94 @@ describe("React renderer port", () => {
     expect(bound.emissions).toEqual(["one"]);
 
     await bound.release();
+  });
+
+  describe("native nested views", () => {
+    /** A native "dialog" view exposing a body element as a named anchor a
+     * child projection can be mounted into, via RegisterAnchorContext (not
+     * a prop -- ReactView's prop type is unaffected by this feature). */
+    const Dialog: ReactView = () => {
+      const registerAnchor = useContext(RegisterAnchorContext);
+      return createElement("dialog", null, [
+        createElement("div", {
+          key: "body",
+          "data-role": "body",
+          ref: (element: HTMLDivElement | null) => {
+            if (element !== null) registerAnchor?.("body", element);
+          },
+        }),
+      ]);
+    };
+
+    it("mounts a child projection into a registered anchor, isolated from the parent", () => {
+      const renderer = createReactRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const container = renderer.elementForIdentity("parent-1");
+      const body = container?.querySelector('[data-role="body"]');
+      const childSection = body?.querySelector("section");
+      expect(childSection?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+
+      const childContainer = body?.querySelector(
+        `[${PROJECTION_IDENTITY_ATTRIBUTE}]`,
+      );
+      expect(childContainer?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+        "child-1",
+      );
+
+      const parentDeliveries: JsonObject[] = [];
+      const childDeliveries: JsonObject[] = [];
+      renderer.registerInteraction(parentRoot, "click", (s) =>
+        parentDeliveries.push(s),
+      );
+      renderer.registerInteraction(childRoot, "click", (s) =>
+        childDeliveries.push(s),
+      );
+      childSection?.dispatchEvent(new Event("click", { bubbles: true }));
+      // Only the child's own listener fires -- the containment guard stops
+      // the bubbled event from also reaching the parent's listener, even
+      // though the child is an independent React root nested inside the
+      // parent's DOM.
+      expect(childDeliveries).toHaveLength(1);
+      expect(parentDeliveries).toHaveLength(0);
+    });
+
+    it("throws a clear error when the named anchor was never registered", () => {
+      const renderer = createReactRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      expect(() =>
+        renderer.mountChild(
+          parentRoot,
+          "no-such-anchor",
+          "child-1",
+          node("section"),
+        ),
+      ).toThrow(/no anchor named/);
+    });
+
+    it("removing the child root leaves the parent view intact", () => {
+      const renderer = createReactRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section"),
+      );
+      renderer.removeRoot(childRoot);
+      const container = renderer.elementForIdentity("parent-1");
+      const body = container?.querySelector('[data-role="body"]');
+      expect(body?.querySelector("section")).toBeNull();
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+    });
   });
 });

@@ -23,6 +23,20 @@ import type { RenderNode, RenderPlan } from "./template-class.js";
 export interface ProjectionRuntime {
   readonly runtime: Runtime;
   mount(instance: ComponentInstance, plan: RenderPlan): Promise<Projection>;
+  /**
+   * Mount a component instance's render plan anchored inside an existing
+   * parent root at a named point, instead of as a new top-level projection.
+   * The parent and child MAY belong to different component classes.
+   * Releasing `parent` cascades to release the returned projection; the
+   * returned projection can also be released independently, and either
+   * release order is idempotent.
+   */
+  mountChild(
+    parent: RootHandle,
+    anchor: string,
+    instance: ComponentInstance,
+    plan: RenderPlan,
+  ): Promise<Projection>;
   commit(root: RootHandle, node: RenderNode): void;
 }
 
@@ -99,7 +113,11 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
     const created: RootHandle[] = [];
     try {
       for (const [rootName, node] of Object.entries(plan.roots)) {
-        created.push(this.#createRoot(instance.classId, rootName, node));
+        created.push(
+          this.#createRoot(instance.classId, rootName, (identity) =>
+            this.renderer.createRoot(identity, node),
+          ),
+        );
       }
     } catch (cause) {
       // Roll back any roots created before the failure; no partial projection.
@@ -107,6 +125,65 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
       throw cause;
     }
 
+    return this.#buildProjection(instance, created);
+  }
+
+  async mountChild(
+    parent: RootHandle,
+    anchor: string,
+    instance: ComponentInstance,
+    plan: RenderPlan,
+  ): Promise<Projection> {
+    this.runtime.assertOwns(parent);
+    parent.assertActive("mount a child projection");
+    this.runtime.assertOwns(instance);
+    instance.assertActive("project a child render plan");
+    const parentState = this.#stateOf(parent);
+
+    const created: RootHandle[] = [];
+    try {
+      for (const [rootName, node] of Object.entries(plan.roots)) {
+        created.push(
+          this.#createRoot(instance.classId, rootName, (identity) =>
+            this.renderer.mountChild(
+              parentState.adapterRoot,
+              anchor,
+              identity,
+              node,
+            ),
+          ),
+        );
+      }
+    } catch (cause) {
+      await releaseAll(created).catch(() => undefined);
+      throw cause;
+    }
+
+    const projection = this.#buildProjection(instance, created);
+    // Cascade: releasing the parent root releases this child projection too.
+    // release() is idempotent, so the child can also be released
+    // independently without disturbing a later parent release.
+    parentState.addCleanup(() => projection.release());
+    return projection;
+  }
+
+  commit(root: RootHandle, node: RenderNode): void {
+    this.runtime.assertOwns(root);
+    root.assertActive("commit a render node");
+    const state = this.#stateOf(root);
+    state.port.commit(state.adapterRoot, state.identity, node);
+    // Managed repair: the identity must be present after every commit.
+    if (state.port.readIdentity(state.adapterRoot) !== state.identity) {
+      throw new ProjectionError(
+        `renderer did not preserve identity for root ${JSON.stringify(root.rootName)}`,
+      );
+    }
+  }
+
+  #buildProjection(
+    instance: ComponentInstance,
+    created: readonly RootHandle[],
+  ): Projection {
     const roots: Record<string, RootHandle> = {};
     for (const handle of created) roots[handle.rootName] = handle;
 
@@ -124,23 +201,10 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
     return projection;
   }
 
-  commit(root: RootHandle, node: RenderNode): void {
-    this.runtime.assertOwns(root);
-    root.assertActive("commit a render node");
-    const state = this.#stateOf(root);
-    state.port.commit(state.adapterRoot, state.identity, node);
-    // Managed repair: the identity must be present after every commit.
-    if (state.port.readIdentity(state.adapterRoot) !== state.identity) {
-      throw new ProjectionError(
-        `renderer did not preserve identity for root ${JSON.stringify(root.rootName)}`,
-      );
-    }
-  }
-
   #createRoot(
     classId: ComponentInstance["classId"],
     rootName: string,
-    node: RenderNode,
+    createAdapterRoot: (identity: string) => AdapterRoot,
   ): RootHandle {
     const controller = createManagedResource<ManagedInstanceId>(
       this.runtime,
@@ -149,7 +213,7 @@ class DefaultProjectionRuntime implements ProjectionRuntime {
     );
     const handle = controller.object as unknown as RootHandle;
     const identity = handle.id;
-    const adapterRoot = this.renderer.createRoot(identity, node);
+    const adapterRoot = createAdapterRoot(identity);
     rootStates.set(handle, {
       port: this.renderer,
       adapterRoot,

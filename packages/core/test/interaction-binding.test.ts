@@ -489,6 +489,7 @@ describe("managed binding lifecycle", () => {
         captured = deliver;
         return { remove: () => undefined };
       },
+      mountChild: (_parent, _anchor, identity) => ({ identity }),
     };
     const projection = createProjectionRuntime(runtime, port);
     const dispatched: JsonObject[] = [];

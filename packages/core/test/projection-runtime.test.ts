@@ -62,13 +62,32 @@ describe("renderer port validation", () => {
         return undefined;
       },
       removeRoot() {},
+      mountChild() {},
     };
     expect(() => createProjectionRuntime(runtime, withoutInteraction)).toThrow(
       InvalidRendererPortError,
     );
   });
 
-  it("accepts a conforming stub including registerInteraction", () => {
+  it("rejects a renderer missing only mountChild", () => {
+    const runtime = createRuntime({ id: "app" });
+    const withoutMountChild = {
+      createRoot() {},
+      commit() {},
+      readIdentity() {
+        return undefined;
+      },
+      removeRoot() {},
+      registerInteraction() {
+        return { remove() {} };
+      },
+    };
+    expect(() => createProjectionRuntime(runtime, withoutMountChild)).toThrow(
+      InvalidRendererPortError,
+    );
+  });
+
+  it("accepts a conforming stub including registerInteraction and mountChild", () => {
     const runtime = createRuntime({ id: "app" });
     const conforming = {
       createRoot() {},
@@ -80,6 +99,7 @@ describe("renderer port validation", () => {
       registerInteraction() {
         return { remove() {} };
       },
+      mountChild() {},
     };
     expect(() => createProjectionRuntime(runtime, conforming)).not.toThrow();
   });
@@ -140,6 +160,153 @@ describe("managed RootHandle projection", () => {
     expect(projection.roots.main?.status).toBe("released");
     expect(projection.roots.aside?.status).toBe("released");
     expect(h.renderer.roots().every((root) => root.removed)).toBe(true);
+  });
+});
+
+describe("child projection anchored to a parent root", () => {
+  function childTemplate() {
+    return createTemplateClass("editor.child.default", {
+      component: "component/editor.child",
+      roots: { main: { kind: "field" } },
+    });
+  }
+
+  async function childInstance(
+    components: ReturnType<typeof harness>["components"],
+  ) {
+    return components.create(
+      components.register(createComponentClass("editor.child", () => "child")),
+    );
+  }
+
+  it("mounts a child projection anchored under the parent root", async () => {
+    const h = harness();
+    h.templates.register(multiRootTemplate());
+    h.templates.register(childTemplate());
+    const parentInstance = await panelInstance(h.components);
+    const parentProjection = await h.projection.mount(
+      parentInstance,
+      h.templates.resolvePlan(parentInstance),
+    );
+    const parentRoot = parentProjection.roots.main as RootHandle;
+
+    const child = await childInstance(h.components);
+    const childProjection = await h.projection.mountChild(
+      parentRoot,
+      "body",
+      child,
+      h.templates.resolvePlan(child),
+    );
+
+    const childRoot = childProjection.roots.main as RootHandle;
+    expect(childRoot.status).toBe("active");
+    const fakeChildRoot = h.renderer
+      .roots()
+      .find(
+        (root) =>
+          root.node.attributes[PROJECTION_IDENTITY_ATTRIBUTE] ===
+          childRoot.identity,
+      );
+    expect(fakeChildRoot?.anchor).toBe("body");
+    expect(
+      fakeChildRoot?.parent?.node.attributes[PROJECTION_IDENTITY_ATTRIBUTE],
+    ).toBe(parentRoot.identity);
+  });
+
+  it("cascades: releasing the parent root releases the child projection", async () => {
+    const h = harness();
+    h.templates.register(multiRootTemplate());
+    h.templates.register(childTemplate());
+    const parentInstance = await panelInstance(h.components);
+    const parentProjection = await h.projection.mount(
+      parentInstance,
+      h.templates.resolvePlan(parentInstance),
+    );
+    const parentRoot = parentProjection.roots.main as RootHandle;
+    const child = await childInstance(h.components);
+    const childProjection = await h.projection.mountChild(
+      parentRoot,
+      "body",
+      child,
+      h.templates.resolvePlan(child),
+    );
+
+    await parentRoot.release();
+    expect(childProjection.status).toBe("released");
+  });
+
+  it("releasing the child independently leaves the parent active, and a later parent release does not double-release it", async () => {
+    const h = harness();
+    h.templates.register(multiRootTemplate());
+    h.templates.register(childTemplate());
+    const parentInstance = await panelInstance(h.components);
+    const parentProjection = await h.projection.mount(
+      parentInstance,
+      h.templates.resolvePlan(parentInstance),
+    );
+    const parentRoot = parentProjection.roots.main as RootHandle;
+    const child = await childInstance(h.components);
+    const childProjection = await h.projection.mountChild(
+      parentRoot,
+      "body",
+      child,
+      h.templates.resolvePlan(child),
+    );
+
+    await childProjection.release();
+    expect(parentRoot.status).toBe("active");
+
+    // The parent's cascade cleanup calls release() again; release() is
+    // idempotent, so this must not throw or double-remove the child's root.
+    await expect(parentRoot.release()).resolves.toBeUndefined();
+    expect(childProjection.status).toBe("released");
+  });
+
+  it("rejects a foreign-runtime parent before invoking the port", async () => {
+    const first = harness("first");
+    const second = harness("second");
+    first.templates.register(childTemplate());
+    second.templates.register(multiRootTemplate());
+    second.templates.register(childTemplate());
+    const foreignParentInstance = await panelInstance(second.components);
+    const foreignParentProjection = await second.projection.mount(
+      foreignParentInstance,
+      second.templates.resolvePlan(foreignParentInstance),
+    );
+    const foreignParentRoot = foreignParentProjection.roots.main as RootHandle;
+    const child = await childInstance(first.components);
+    await expect(
+      first.projection.mountChild(
+        foreignParentRoot,
+        "body",
+        child,
+        first.templates.resolvePlan(child),
+      ),
+    ).rejects.toBeInstanceOf(OwnershipError);
+  });
+
+  it("rejects a foreign-runtime child instance before invoking the port", async () => {
+    const first = harness("first");
+    const second = harness("second");
+    first.templates.register(multiRootTemplate());
+    second.templates.register(childTemplate());
+    const parentInstance = await panelInstance(first.components);
+    const parentProjection = await first.projection.mount(
+      parentInstance,
+      first.templates.resolvePlan(parentInstance),
+    );
+    const parentRoot = parentProjection.roots.main as RootHandle;
+    const foreignChild = await childInstance(second.components);
+    const foreignChildCountBefore = first.renderer.roots().length;
+    await expect(
+      first.projection.mountChild(
+        parentRoot,
+        "body",
+        foreignChild,
+        second.templates.resolvePlan(foreignChild),
+      ),
+    ).rejects.toBeInstanceOf(OwnershipError);
+    expect(first.renderer.roots()).toHaveLength(foreignChildCountBefore);
   });
 });
 

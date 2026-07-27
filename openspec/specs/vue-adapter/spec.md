@@ -9,7 +9,7 @@ React's reconciler — hardens the renderer-independence claim: the port is not 
 around the two frameworks it was first written against. The adapter carries the same
 per-root container anchor (identity + native interaction listener), commit repair, view
 registry, and immutable interaction snapshots as the other adapters, and passes the
-shared two-editor validation with no Vue dev warnings. Vue and DOM types live only in
+shared neutral composition's validation with no Vue dev warnings. Vue and DOM types live only in
 this package; `@velkren/core` imports no Vue type.
 
 ## Requirements
@@ -68,16 +68,16 @@ or the registry.
 - **WHEN** a node's `kind` is not in the registry
 - **THEN** the adapter renders it via `h(kind, …)`, unchanged
 
-### Requirement: Vue two-editor validation
+### Requirement: Vue neutral-composition validation
 
-The Vue adapter SHALL pass the shared two-editor validation
+The Vue adapter SHALL pass the shared neutral composition's validation
 (`createEditorApp(createVueRenderer())`) — two editors coexist without collision, a
 business event is observed through the event trace, and destroying one editor releases
 only its owned work — with no `@velkren/core` change and no Vue dev warning.
 
 #### Scenario: Two editors isolate, emit, and dispose on Vue
 
-- **WHEN** the shared two-editor composition is mounted on the Vue renderer, both editors are interacted with, and one is destroyed
+- **WHEN** the shared neutral composition is mounted on the Vue renderer, both editors are interacted with, and one is destroyed
 - **THEN** the two never collide, each business event is observed through the trace, destroying one releases only its work, and no Vue dev warning is emitted
 
 ### Requirement: Vue membrane via the shared core

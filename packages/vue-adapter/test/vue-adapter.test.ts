@@ -55,4 +55,49 @@ describe("vue renderer", () => {
     expect(section?.getAttribute("v")).toBe("1");
     renderer.removeRoot(root);
   });
+
+  it("does not overwrite a user-typed value once the field is dirty (no adapter code needed)", () => {
+    const renderer = createVueRenderer();
+    const root = renderer.createRoot("id-value", node("input", { value: "a" }));
+    const input = renderer
+      .elementForIdentity("id-value")
+      ?.querySelector("input") as HTMLInputElement;
+    expect(input.value).toBe("a");
+
+    // The user types, setting the HTML "dirty value flag."
+    input.value = "typed by user";
+    // A same-value re-commit (the common echo-back case) must not disturb it.
+    // This is Vue's own render()/patchDOMProp behavior -- no adapter code
+    // handles `value` specially anywhere in this package.
+    renderer.commit(
+      root,
+      "id-value",
+      node("input", { value: "typed by user" }),
+    );
+    expect(input.value).toBe("typed by user");
+
+    // A genuinely different, state-driven value still reaches the property.
+    renderer.commit(root, "id-value", node("input", { value: "external" }));
+    expect(input.value).toBe("external");
+    renderer.removeRoot(root);
+  });
+
+  it("skips a redundant assignment and preserves the caret on a same-value re-commit", () => {
+    const renderer = createVueRenderer();
+    const root = renderer.createRoot(
+      "id-caret",
+      node("input", { value: "hello" }),
+    );
+    const input = renderer
+      .elementForIdentity("id-caret")
+      ?.querySelector("input") as HTMLInputElement;
+    input.setSelectionRange(2, 2);
+
+    renderer.commit(root, "id-caret", node("input", { value: "hello" }));
+
+    expect(input.value).toBe("hello");
+    expect(input.selectionStart).toBe(2);
+    expect(input.selectionEnd).toBe(2);
+    renderer.removeRoot(root);
+  });
 });

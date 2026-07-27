@@ -296,20 +296,87 @@ function patchChildren(
 }
 
 /**
+ * Tags whose `value` IDL property is a string mirroring the HTML "dirty value
+ * flag" semantics this adapter needs to respect. Deliberately narrower than
+ * "has a `value` property at all": `<li>`, `<meter>`, and `<progress>` also
+ * have a settable `value`, but it is a *numeric* WebIDL property (`long` or
+ * `double`) that silently coerces a non-numeric string to `0`/`NaN` rather
+ * than storing it — assigning through it would corrupt, not preserve, an
+ * ordinary string attribute value.
+ */
+const CONTROLLED_VALUE_TAGS = new Set(["input", "textarea", "select"]);
+
+/**
  * Set only the attributes whose stringified value changed and remove attributes
- * absent from `newAttributes`, leaving the element identity intact.
+ * absent from `newAttributes`, leaving the element identity intact. `value` on
+ * an `input`/`textarea`/`select` element is applied as a live DOM property
+ * instead (see `applyValueProperty`), since `setAttribute` stops reaching the
+ * live value the instant the HTML "dirty value flag" is set by a user edit.
  */
 function patchAttributes(
   element: HTMLElement,
   oldAttributes: JsonObject,
   newAttributes: JsonObject,
 ): void {
+  const controlledValue = CONTROLLED_VALUE_TAGS.has(
+    element.tagName.toLowerCase(),
+  );
   for (const [key, value] of Object.entries(newAttributes)) {
     const next = stringifyAttribute(value);
+    if (key === "value" && controlledValue) {
+      applyValueProperty(element as HTMLInputElement, next);
+      continue;
+    }
     if (element.getAttribute(key) !== next) element.setAttribute(key, next);
   }
   for (const key of Object.keys(oldAttributes)) {
-    if (!(key in newAttributes)) element.removeAttribute(key);
+    if (key in newAttributes) continue;
+    if (key === "value" && controlledValue) {
+      applyValueProperty(element as HTMLInputElement, "");
+      continue;
+    }
+    element.removeAttribute(key);
+  }
+}
+
+/**
+ * Apply `next` to `element.value` as a live DOM property: skip the assignment
+ * when it already holds `next` (avoids disturbing the caret on a redundant
+ * re-commit), and otherwise preserve the current text selection across the
+ * assignment, clamped to the new length. Selection access is guarded because
+ * some `<input>` types (number, email, date, ...) throw on
+ * `selectionStart`/`selectionEnd`/`setSelectionRange` per the HTML Standard.
+ */
+function applyValueProperty(element: HTMLInputElement, next: string): void {
+  if (element.value === next) return;
+  let selection:
+    | {
+        start: number | null;
+        end: number | null;
+        direction: "forward" | "backward" | "none" | null;
+      }
+    | undefined;
+  try {
+    selection = {
+      start: element.selectionStart,
+      end: element.selectionEnd,
+      direction: element.selectionDirection,
+    };
+  } catch {
+    selection = undefined;
+  }
+  element.value = next;
+  if (selection?.start != null && selection.end != null) {
+    try {
+      const max = next.length;
+      element.setSelectionRange(
+        Math.min(selection.start, max),
+        Math.min(selection.end, max),
+        selection.direction ?? undefined,
+      );
+    } catch {
+      // Selection is not supported on this element/type; nothing to restore.
+    }
   }
 }
 
@@ -329,8 +396,16 @@ function normalizeOptions(options?: HTMLElement | SolidRendererOptions): {
 }
 
 function applyAttributes(element: HTMLElement, attributes: JsonObject): void {
+  const controlledValue = CONTROLLED_VALUE_TAGS.has(
+    element.tagName.toLowerCase(),
+  );
   for (const [key, value] of Object.entries(attributes)) {
-    element.setAttribute(key, stringifyAttribute(value));
+    const next = stringifyAttribute(value);
+    if (key === "value" && controlledValue) {
+      applyValueProperty(element as HTMLInputElement, next);
+      continue;
+    }
+    element.setAttribute(key, next);
   }
 }
 

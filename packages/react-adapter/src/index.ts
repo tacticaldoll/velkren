@@ -229,6 +229,13 @@ function VelkrenTree({ node, views }: VelkrenTreeProps): ReactElement {
   return renderNode(node, views);
 }
 
+/** Tags React treats as controlled form elements: a `value` prop installs
+ * React's own value-tracking, which resyncs the DOM on every render and
+ * leaves the field read-only without a matching `onChange`. `value` is kept
+ * out of these tags' props entirely and applied through a ref instead (see
+ * `renderNode`), so React never installs that tracking in the first place. */
+const CONTROLLED_VALUE_TAGS = new Set(["input", "textarea", "select"]);
+
 function renderNode(
   node: RenderNode,
   views: ReactViewRegistry,
@@ -246,13 +253,71 @@ function renderNode(
   }
   const props: Record<string, unknown> = {};
   if (key !== undefined) props.key = key;
+  const controlledValue = CONTROLLED_VALUE_TAGS.has(node.kind)
+    ? node.attributes.value
+    : undefined;
   for (const [name, value] of Object.entries(node.attributes)) {
+    if (name === "value" && controlledValue !== undefined) continue;
     props[translateAttribute(name)] = stringifyAttribute(value);
+  }
+  if (controlledValue !== undefined) {
+    // A fresh closure every render means React invokes this ref on every
+    // commit (old ref with null, new ref with the node, for an unchanged
+    // underlying DOM element) — synchronously, inside the same flushSync
+    // this file already wraps every render in. React never sees `value` as
+    // a prop on this node, so there is nothing for its controlled-input
+    // machinery to install or fight back with.
+    props.ref = (element: HTMLInputElement | null): void => {
+      if (element === null) return;
+      applyValueProperty(element, stringifyAttribute(controlledValue));
+    };
   }
   const children = node.children.map((child, index) =>
     renderNode(child, views, String(index)),
   );
   return createElement(node.kind, props, ...children);
+}
+
+/**
+ * Apply `next` to `element.value` as a live DOM property: skip the assignment
+ * when it already holds `next` (avoids disturbing the caret on a redundant
+ * re-commit), and otherwise preserve the current text selection across the
+ * assignment, clamped to the new length. Selection access is guarded because
+ * some `<input>` types (number, email, date, ...) throw on
+ * `selectionStart`/`selectionEnd`/`setSelectionRange` per the HTML Standard.
+ * Mirrors the SolidJS adapter's helper of the same shape.
+ */
+function applyValueProperty(element: HTMLInputElement, next: string): void {
+  if (element.value === next) return;
+  let selection:
+    | {
+        start: number | null;
+        end: number | null;
+        direction: "forward" | "backward" | "none" | null;
+      }
+    | undefined;
+  try {
+    selection = {
+      start: element.selectionStart,
+      end: element.selectionEnd,
+      direction: element.selectionDirection,
+    };
+  } catch {
+    selection = undefined;
+  }
+  element.value = next;
+  if (selection?.start != null && selection.end != null) {
+    try {
+      const max = next.length;
+      element.setSelectionRange(
+        Math.min(selection.start, max),
+        Math.min(selection.end, max),
+        selection.direction ?? undefined,
+      );
+    } catch {
+      // Selection is not supported on this element/type; nothing to restore.
+    }
+  }
 }
 
 /**

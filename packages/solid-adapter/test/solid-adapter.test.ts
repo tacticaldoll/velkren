@@ -151,9 +151,120 @@ describe("SolidJS renderer port", () => {
     await Promise.resolve();
     const inputAfter = container.querySelector("input");
     // The input is the SAME DOM node (reconciled in place), not rebuilt — so a
-    // user's focus and caret survive a state-driven re-commit.
+    // user's focus and caret survive a state-driven re-commit. `value` is
+    // managed as a live DOM property (not an attribute — getAttribute("value")
+    // is never set at all), so the assertion reads the property.
     expect(inputAfter).toBe(inputBefore);
-    expect(inputAfter?.getAttribute("value")).toBe("b");
+    expect(inputAfter?.value).toBe("b");
+    expect(inputAfter?.getAttribute("value")).toBeNull();
+  });
+
+  it("does not overwrite a user-typed value once the field is dirty", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", node("input", { value: "a" }));
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
+    expect(input.value).toBe("a");
+
+    // The user types, setting the HTML "dirty value flag": from this point,
+    // setAttribute("value", ...) alone would never reach the live property.
+    input.value = "typed by user";
+    // A same-value re-commit (the common echo-back case) must not disturb it.
+    renderer.commit(root, "root-1", node("input", { value: "typed by user" }));
+    await Promise.resolve();
+    expect(input.value).toBe("typed by user");
+
+    // A genuinely different, state-driven value still reaches the property.
+    renderer.commit(root, "root-1", node("input", { value: "external" }));
+    await Promise.resolve();
+    expect(input.value).toBe("external");
+  });
+
+  it("skips a redundant assignment and preserves the caret on a same-value re-commit", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("input", { value: "hello" }),
+    );
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
+    input.setSelectionRange(2, 2);
+
+    renderer.commit(root, "root-1", node("input", { value: "hello" }));
+    await Promise.resolve();
+
+    expect(input.value).toBe("hello");
+    expect(input.selectionStart).toBe(2);
+    expect(input.selectionEnd).toBe(2);
+  });
+
+  it("restores the selection range (clamped to the new length) across a real value change", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot(
+      "root-1",
+      node("input", { value: "hello" }),
+    );
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
+    input.setSelectionRange(3, 5);
+
+    renderer.commit(root, "root-1", node("input", { value: "hi" }));
+    await Promise.resolve();
+
+    expect(input.value).toBe("hi");
+    expect(input.selectionStart).toBe(2); // clamped to the new length
+    expect(input.selectionEnd).toBe(2);
+  });
+
+  it("applies a value crossing without throwing on an input type that rejects selection", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", {
+      kind: "input",
+      attributes: { type: "number", value: "1" },
+      children: [],
+      slots: {},
+    });
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
+    expect(input.value).toBe("1");
+
+    expect(() => {
+      renderer.commit(root, "root-1", {
+        kind: "input",
+        attributes: { type: "number", value: "2" },
+        children: [],
+        slots: {},
+      });
+    }).not.toThrow();
+    await Promise.resolve();
+    expect(input.value).toBe("2");
+  });
+
+  it("clears the value property when a later commit removes the value attribute", async () => {
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", node("input", { value: "a" }));
+    const input = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLInputElement;
+    expect(input.value).toBe("a");
+
+    renderer.commit(root, "root-1", node("input"));
+    await Promise.resolve();
+    expect(input.value).toBe("");
+  });
+
+  it("does not treat a non-form element's value as a controlled DOM property", async () => {
+    // <li>'s `value` IDL property is a *numeric* WebIDL long, not a string:
+    // assigning through it (rather than setAttribute) would silently coerce
+    // "abc" to 0. Only input/textarea/select get the property-based crossing.
+    const renderer = createSolidRenderer();
+    const root = renderer.createRoot("root-1", node("li", { value: "abc" }));
+    const li = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLLIElement;
+    expect(li.getAttribute("value")).toBe("abc");
+
+    renderer.commit(root, "root-1", node("li", { value: "def" }));
+    await Promise.resolve();
+    expect(li.getAttribute("value")).toBe("def");
   });
 
   it("reconciles children in place: patch, append, and remove", async () => {

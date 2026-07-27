@@ -88,23 +88,21 @@ commit path uniformly; there is no separate code path to special-case.
 
 ## Decisions
 
-- **Scope the mechanism by capability, not by hardcoded tag, on
-  Solid.** `patchAttributes`/`applyAttributes` special-case the `value` key
-  only when `"value" in element` — mirroring Vue's own `shouldSetAsProp`
-  check — rather than an `<input>`-only allowlist. This gets `<textarea>`
-  correct for free without adding a second special case, and naturally
-  excludes elements with no `value` IDL property without an explicit
-  denylist.
-- **Scope the mechanism by tag, on React**, unlike Solid. React's controlled-
-  component detection is itself keyed on the tag name (`input`, `textarea`,
-  `select`) at the framework level — a `<div value="x">` is never treated as
-  controlled by React and is handled as an ordinary attribute today with no
-  warning or lock-out. Excluding `value` from props only for those three
-  tags (`CONTROLLED_VALUE_TAGS`) is the minimal change that fixes the actual
-  problem without altering behavior for any other element, whereas a
-  capability check (`"value" in element`) would require constructing or
-  inspecting a DOM node before React has created one, which the vnode-based
-  `renderNode` function cannot do.
+- **Scope the mechanism by tag, on both Solid and React** — not by a
+  capability check. An earlier version of this design used `"value" in
+element` on Solid (mirroring Vue's own `shouldSetAsProp` check), reasoning
+  it would generalize to `<textarea>` for free. That reasoning was wrong:
+  `"value" in element` is also true for `<li>`, `<meter>`, and `<progress>`,
+  whose `value` IDL property is a _numeric_ WebIDL type (`long`/`double`),
+  not a string — assigning a string through it silently coerces
+  (`element.value = "abc"` on an `<li>` becomes `"0"`), corrupting rather
+  than preserving an ordinary ordinal attribute. Verified directly against
+  happy-dom: `li.value` reads back `"0"` after assigning `"abc"`. Both
+  adapters now use the same `CONTROLLED_VALUE_TAGS = new Set(["input",
+"textarea", "select"])` allowlist, matching exactly the tags whose
+  `value` is string-typed and exactly the tags React's own controlled-input
+  detection already targets — removing both the bug and the Solid/React
+  scoping asymmetry the earlier design introduced.
 - **Never let React see a `value` prop on a controlled tag, rather than try
   to satisfy React's controlled contract.** Passing `value` with a matching
   `onChange`/`readOnly` would still leave React owning the DOM `.value`
@@ -158,15 +156,20 @@ commit path uniformly; there is no separate code path to special-case.
 
 ## Risks / Trade-offs
 
-- **A host names a data field `value` on a non-form element expecting plain
-  attribute reflection** (Solid) → mitigated by the capability check: only
-  elements that actually have a settable `value` IDL property are affected,
-  which in practice means real form controls.
-- **React's tag-based exclusion list could miss a future controlled-value
-  element** (e.g. a custom element with a `value` IDL property Velkren later
-  wants to treat this way) → acceptable for a first increment: the backlog
-  explicitly scopes this to "a first text-field proof," and the exclusion
-  list is a single, easily-extended constant.
+- **The shared tag-based exclusion list could miss a future controlled-value
+  element** (e.g. a custom element with a string `value` IDL property
+  Velkren later wants to treat this way) → acceptable for a first
+  increment: the backlog explicitly scopes this to "a first text-field
+  proof," and `CONTROLLED_VALUE_TAGS` is a single, easily-extended constant
+  in each adapter.
+- **A capability check (`"value" in element`) looked more general but was
+  actually unsafe** — caught during review, not shipped: it does not
+  distinguish a string-typed `value` (input/textarea/select) from a
+  numeric-typed one (`<li>`, `<meter>`, `<progress>`), and assigning a
+  string through a numeric IDL setter silently coerces it. The tag
+  allowlist avoids this entirely by construction; a regression test
+  (`<li value>` unaffected) guards against reintroducing the capability
+  check later.
 - **Duplicated `applyValueProperty` logic across Solid and React could
   drift** → mitigated by keeping the function small and behaviorally
   identical by construction (same skip-if-equal + guarded selection
@@ -177,6 +180,18 @@ commit path uniformly; there is no separate code path to special-case.
   invocations cheap no-ops, and this is the same "runs every commit
   regardless" shape `stampIdentity`'s commit-repair already has in this
   file.
+- **React does not clear the DOM `value` property when a later commit stops
+  including a `value` attribute**, unlike Solid (which explicitly clears it
+  via `applyValueProperty(element, "")` on removal). This is a real,
+  accepted asymmetry: `renderNode` rebuilds the vdom fresh on every commit
+  with no memory of the _previous_ node (unlike Solid's `patchNode`, which
+  receives both old and new nodes explicitly), so there is no natural place
+  to detect "value was present before, now it's gone" without threading
+  extra state through a function that is otherwise stateless by design. In
+  practice this does not arise: a state-binding `derive` function that
+  manages a field's `value` does so consistently, not intermittently. Not
+  fixed in this increment; worth revisiting only if a real use case needs
+  it.
 - **Vue's own `patchDOMProp` behavior is outside this repo's control** and
   could change in a future Vue release → acceptable; this is the same
   “adopt the framework’s real primitive” trade-off every adapter already

@@ -23,14 +23,15 @@ added to prove it, not a fix.
 ## What Changes
 
 - **Solid** (`packages/solid-adapter/src/index.ts`): `applyAttributes` (initial
-  mount) and `patchAttributes` (commit) special-case the `value` key when the
-  target element has a settable `value` IDL property (`"value" in element`):
-  instead of `setAttribute`, they compare `element.value` to the incoming
-  string and, only if different, assign `element.value` directly, saving and
-  restoring `selectionStart`/`selectionEnd`/`selectionDirection` around the
-  assignment (guarded, since some `<input>` types throw on selection access).
-  Removing `value` from a later commit clears the property the same way
-  rather than calling `removeAttribute`.
+  mount) and `patchAttributes` (commit) special-case the `value` key for
+  `input`/`textarea`/`select` elements (`CONTROLLED_VALUE_TAGS`, the same
+  allowlist as React — see design.md for why a broader capability check is
+  unsafe): instead of `setAttribute`, they compare `element.value` to the
+  incoming string and, only if different, assign `element.value` directly,
+  saving and restoring `selectionStart`/`selectionEnd`/`selectionDirection`
+  around the assignment (guarded, since some `<input>` types throw on
+  selection access). Removing `value` from a later commit clears the
+  property the same way rather than calling `removeAttribute`.
 - **React** (`packages/react-adapter/src/index.ts`): `renderNode` excludes
   `value` from the generic props object for the three tags React treats as
   controlled form elements (`input`, `textarea`, `select`), so React's own
@@ -65,10 +66,10 @@ added to prove it, not a fix.
 
 ### Modified Capabilities
 
-- `solid-adapter-prototype`: a state-bound `value` attribute on a primitive
-  element now applies as a live DOM property (skip-if-equal, selection
-  preserved) instead of `setAttribute`, so a real user edit is not lost on
-  the next commit.
+- `solid-adapter-prototype`: a state-bound `value` attribute on an
+  `input`/`textarea`/`select` primitive element now applies as a live DOM
+  property (skip-if-equal, selection preserved) instead of `setAttribute`,
+  so a real user edit is not lost on the next commit.
 - `react-adapter`: `value` is excluded from the props of `input`/`textarea`/
   `select` primitive elements and instead applied imperatively after each
   render, so React's controlled-input machinery never engages and the field

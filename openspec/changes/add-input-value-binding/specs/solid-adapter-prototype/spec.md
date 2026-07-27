@@ -2,17 +2,21 @@
 
 ### Requirement: State-bound value crosses as a live DOM property
 
-The adapter SHALL apply a `value` attribute to an element that has a
-settable `value` IDL property as a live DOM property assignment rather than
+The adapter SHALL apply a `value` attribute on an `input`, `textarea`, or
+`select` element as a live DOM property assignment rather than
 `setAttribute`, on both initial mount and every later commit. The adapter
-SHALL compare the incoming value against the element's current `.value`
-property and SHALL skip the assignment when they are already equal. When an
-assignment is necessary, the adapter SHALL preserve the element's current
-text selection (`selectionStart`, `selectionEnd`, `selectionDirection`)
-across the assignment when the element supports text selection, clamping
-the restored range to the new value's length. A later commit that removes
-the `value` attribute SHALL clear the property through the same guarded
-path rather than calling `removeAttribute`.
+MUST NOT apply this treatment to any other element kind, since a non-form
+element's `value` property (for example `<li>`, `<meter>`, or `<progress>`)
+may be a numeric WebIDL type that silently coerces a string rather than
+storing it. The adapter SHALL compare the incoming value against the
+element's current `.value` property and SHALL skip the assignment when they
+are already equal. When an assignment is necessary, the adapter SHALL
+preserve the element's current text selection (`selectionStart`,
+`selectionEnd`, `selectionDirection`) across the assignment when the
+element supports text selection, clamping the restored range to the new
+value's length. A later commit that removes the `value` attribute SHALL
+clear the property through the same guarded path rather than calling
+`removeAttribute`.
 
 #### Scenario: A same-value re-commit does not disturb the field
 
@@ -44,3 +48,10 @@ path rather than calling `removeAttribute`.
   element that previously had one applied as a property
 - **THEN** the adapter clears the element's `value` property through the
   same guarded assignment path
+
+#### Scenario: A non-form element's value attribute is unaffected
+
+- **WHEN** a primitive element whose kind is not `input`, `textarea`, or
+  `select` carries a `value` attribute
+- **THEN** the adapter applies it through `setAttribute` exactly as before
+  this change, with no property assignment

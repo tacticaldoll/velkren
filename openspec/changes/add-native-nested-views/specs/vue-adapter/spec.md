@@ -2,17 +2,17 @@
 
 ### Requirement: Vue adapter implements child mounting
 
-The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. A registered Vue view SHALL receive a `registerAnchor(name, element)` function mixed into its props, since a Vue functional component is invoked by Vue's own renderer rather than called directly by the adapter; calling it during the view's own render records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element.
+The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. The adapter SHALL expose a `registerAnchor(name, element)` function to a registered view through Vue's `provide`/`inject` (`REGISTER_ANCHOR_KEY`), not through the view's props, so that `VueView`'s prop type remains exactly `FunctionalComponent<JsonObject>`, unchanged from before this requirement. Calling `registerAnchor` records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element.
 
 #### Scenario: A view registers an anchor and hosts a child
 
-- **WHEN** a Vue view calls the `registerAnchor` prop with a name and an element during its own render, and a caller later calls `mountChild` naming that anchor on the same root
+- **WHEN** a Vue view reads `registerAnchor` via `inject(REGISTER_ANCHOR_KEY)` and calls it with a name and an element (typically from a `ref`, since a real DOM element only exists at commit), and a caller later calls `mountChild` naming that anchor on the same root
 - **THEN** the child's per-root container is created under the registered element, with its own identity attribute and native interaction listener, as an independent Vue render root rather than a `Teleport` into the parent's own tree
 
 #### Scenario: An unmodified view is unaffected
 
-- **WHEN** a registered Vue view never calls the `registerAnchor` prop
-- **THEN** it renders exactly as it did before this requirement, receiving only its attribute-derived props
+- **WHEN** a registered Vue view never injects `REGISTER_ANCHOR_KEY`
+- **THEN** it renders exactly as it did before this requirement, receiving only its attribute-derived props, and its declared prop type is unaffected by this requirement
 
 ### Requirement: Interaction isolation between a nested child and its parent
 

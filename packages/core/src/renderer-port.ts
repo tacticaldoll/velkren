@@ -32,6 +32,20 @@ export interface RendererPort {
     type: string,
     deliver: (snapshot: JsonObject) => void,
   ): InteractionRegistration;
+  /**
+   * Mount a new root anchored inside an existing parent root at a named
+   * point, rather than under the adapter's own top-level host. Used to
+   * project a child component instance's render plan into a named anchor a
+   * registered native view exposed. The returned root carries its own
+   * identity and supports every other port operation exactly like a
+   * top-level root created by `createRoot`.
+   */
+  mountChild(
+    parent: AdapterRoot,
+    anchor: string,
+    identity: string,
+    node: RenderNode,
+  ): AdapterRoot;
 }
 
 /** The permanent attribute key under which a root's identity is projected. */
@@ -77,6 +91,7 @@ const PORT_OPERATIONS = [
   "readIdentity",
   "removeRoot",
   "registerInteraction",
+  "mountChild",
 ] as const;
 
 /** Validate that a value implements every RendererPort operation. */

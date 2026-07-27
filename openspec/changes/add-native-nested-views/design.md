@@ -137,26 +137,44 @@ specs) shape the whole design:
     _root currently being rendered_.
   - **React** and **Vue**'s registered views are real components invoked by
     their own reconciler, not called directly by the adapter — there is no
-    second call argument to add. Instead, `registerAnchor` is mixed into the
-    props object the adapter already builds
+    second call argument to add. An earlier version of this design mixed
+    `registerAnchor` directly into the props object passed to the view
     (`createElement(view, { ...node.attributes, registerAnchor })` /
-    `h(view, { ...node.attributes, registerAnchor })`). This is a
-    non-`JsonObject` extension of the props object passed to the framework
-    (not of `node.attributes` itself, which stays pure `JsonObject`), the
-    same pattern already used for React's `ref`-based value crossing
-    (`add-input-value-binding`). Concretely, the view calls `registerAnchor`
-    from a `ref` callback on the element it wants to expose as an anchor
-    (a real DOM node does not exist until commit, so this cannot happen in
-    the render body itself) — the same "fires on every commit, a fresh
-    closure means React/Vue invoke it again" shape already used for the
-    value-crossing ref, so the anchor is guaranteed registered by the time
-    the adapter's own `flushSync`/`render()` call returns to it.
+    `h(view, { ...node.attributes, registerAnchor })`). That does not
+    actually work: `ReactView`/`VueView` are typed as
+    `FunctionComponent<JsonObject>`/`FunctionalComponent<JsonObject>`, and
+    `JsonObject`'s index signature requires _every_ property (including a
+    mixed-in `registerAnchor`) to be a `JsonValue` — a function is not one,
+    so the combined props object fails to typecheck, and worse, an
+    _existing_ view typed against the plain `JsonObject` props type is no
+    longer assignable to the new view type at all (contravariant parameter
+    checking rejects it), breaking the "existing views are unaffected"
+    backward-compatibility goal outright. Verified directly with `tsc`
+    against a minimal old-style view before rejecting this approach.
+    Instead, `registerAnchor` reaches the view through each framework's own
+    context mechanism — React's `createContext`/`useContext`
+    (`RegisterAnchorContext`, exported so a view can import and consume it)
+    and Vue's `provide`/`inject` (`REGISTER_ANCHOR_KEY`, an exported
+    `InjectionKey`) — provided once for the whole tree by a small internal
+    wrapper component (`VelkrenTree`) each adapter already renders instead
+    of the raw node tree directly. `ReactView`/`VueView`'s prop types are
+    therefore completely unchanged by this feature — verified by `tsc`
+    accepting an old-style view assigned to the new type with zero errors.
+  - The view calls `registerAnchor`/the injected function from a `ref`
+    callback on the element it wants to expose as an anchor (a real DOM
+    node does not exist until commit, so this cannot happen in the render
+    body itself) — the same "fires on every commit, a fresh closure means
+    React/Vue invoke it again" shape already used for the value-crossing
+    ref in `add-input-value-binding`, so the anchor is guaranteed
+    registered by the time the adapter's own `flushSync`/`render()` call
+    returns to it.
   - Each adapter stores the anchor map (name → DOM element) keyed by the
     _currently rendering root_, since a `registerAnchor` call must resolve
     to "the parent root a later `mountChild` call names" — implemented as a
     small per-root `Map<string, Element>` alongside each adapter's existing
     internal root-tracking structure (`SolidAdapterRoot`, `ReactAdapterRoot`,
-    the Vue adapter's equivalent).
+    the Vue adapter's equivalent), passed into the `VelkrenTree` wrapper as
+    a prop for React/Vue.
 - **`mountChild`'s own root-creation reuses the adapter's _existing_
   per-root container/identity/interaction-listener logic**, just anchored
   under the registered element instead of `host` — so a nested root gets
@@ -191,6 +209,15 @@ specs) shape the whole design:
 
 ## Risks / Trade-offs
 
+- **Mixing `registerAnchor` into a view's `JsonObject`-typed props silently
+  breaks backward compatibility** — caught while implementing, not shipped:
+  confirmed by `tsc` that an existing `FunctionComponent<JsonObject>`-typed
+  view is no longer assignable to a view type whose props type has been
+  widened to include a non-`JsonValue` property, due to `JsonObject`'s
+  strict index signature and contravariant function-parameter checking.
+  Fixed by using React context / Vue provide-inject instead of a prop, which
+  leaves `ReactView`/`VueView`'s prop types completely untouched —
+  re-verified with `tsc` that the same old-style view now assigns cleanly.
 - **Nesting a child root's container inside a parent's DOM reopens
   interaction double-delivery** — caught during review, not shipped as a
   latent bug: every adapter's container listener was written assuming
@@ -212,6 +239,22 @@ specs) shape the whole design:
   does not make this worse, it inherits an existing constraint). Not fixed
   here; the acceptance scenarios avoid re-rendering a view that hosts a
   live child.
+- **A stale anchor map entry could let `mountChild` silently succeed against
+  a detached, invisible element** — caught during a second review pass, not
+  shipped: the per-root anchor `Map` is never pruned, so if the view that
+  registered a name stops rendering it on a later commit, the old DOM
+  element the Map still points at is detached from the root's own
+  container, yet the naive `undefined` check alone would not have caught
+  it. Fixed in all three adapters by additionally requiring
+  `parentRoot.container.contains(anchorElement)` (Solid: `rootContainer`)
+  before treating an anchor as valid — checked against the root's _own_
+  container, not global `document` connectivity, since the whole render
+  tree may legitimately be off-document (as in these adapters' own unit
+  tests, which use a detached `host`). A regression test
+  (`packages/solid-adapter/test/solid-adapter.test.ts`, "treats a stale
+  anchor... as unregistered") mounts a view, commits it away, and asserts
+  `mountChild` now throws instead of silently mounting into the detached
+  element.
 - **Lifecycle cascade via the parent's cleanup chain could run into
   reentrancy** if a child's own release cleanup somehow re-triggers the
   parent's release → not a realistic path: `release()` on the parent is

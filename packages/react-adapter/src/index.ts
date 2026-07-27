@@ -1,4 +1,5 @@
 import {
+  createContext,
   createElement,
   type FunctionComponent,
   type ReactElement,
@@ -40,9 +41,30 @@ export interface ReactRenderer extends RendererPort {
 }
 
 /**
+ * Registers an element inside a view's own output as a named anchor a child
+ * projection can later be mounted into via `mountChild`. Calling it is
+ * optional; a view that never calls it is an unaffected, strict leaf. A real
+ * DOM node only exists at commit, so a view typically calls this from a
+ * `ref` callback on the element it wants to expose, not from its render body.
+ */
+export type RegisterAnchor = (name: string, element: HTMLElement) => void;
+
+/**
+ * Supplies `registerAnchor` to a view via React context rather than an extra
+ * prop, so `ReactView`'s prop type stays exactly `FunctionComponent<JsonObject>`
+ * — unchanged, and an existing view keeps compiling against the same type as
+ * before this feature. A view calls `useContext(RegisterAnchorContext)` to
+ * opt in; the value is `undefined` only outside a Velkren-rendered tree,
+ * which never happens for a view the adapter itself renders.
+ */
+export const RegisterAnchorContext = createContext<RegisterAnchor | undefined>(
+  undefined,
+);
+
+/**
  * A registered React view: a component that receives a node's neutral
- * `attributes` (a `JsonObject`) as its props. React and this view type live only
- * in this package; `@velkren/core` never references them.
+ * `attributes` (a `JsonObject`) as its props. React and this view type live
+ * only in this package; `@velkren/core` never references them.
  */
 export type ReactView = FunctionComponent<JsonObject>;
 
@@ -75,6 +97,9 @@ interface ReactAdapterRoot {
   /** One native listener per registered interaction type on the container. */
   readonly listeners: Map<string, EventListener>;
   disposed: boolean;
+  /** Elements a view rendered on this root registered as named anchors, for
+   * a later `mountChild` call to mount into. */
+  readonly anchors: Map<string, HTMLElement>;
 }
 
 /**
@@ -91,31 +116,73 @@ export function createReactRenderer(
   const asRoot = (root: AdapterRoot): ReactAdapterRoot =>
     root as ReactAdapterRoot;
 
+  /** Build a per-root container mounted under `parentContainer`, shared by
+   * both a top-level `createRoot` (parent = the configured host) and a
+   * nested `mountChild` (parent = a registered anchor element). */
+  function mountRootInto(
+    parentContainer: HTMLElement,
+    identity: string,
+    node: RenderNode,
+  ): ReactAdapterRoot {
+    const rootContainer = document.createElement("div");
+    parentContainer.appendChild(rootContainer);
+    const reactRoot = createReactRoot(rootContainer);
+    const anchors = new Map<string, HTMLElement>();
+    // Flush synchronously: the port contract reads the mounted DOM the instant
+    // this returns, but `react-dom` otherwise only schedules the render.
+    flushSync(() => {
+      reactRoot.render(createElement(VelkrenTree, { node, views, anchors }));
+    });
+    // Identity is stamped imperatively on the container (never a React prop):
+    // a re-render alone would not restore an out-of-band-removed attribute.
+    stampIdentity(rootContainer, identity);
+    return {
+      container: rootContainer,
+      reactRoot,
+      identity,
+      registrations: new Map(),
+      listeners: new Map(),
+      disposed: false,
+      anchors,
+    };
+  }
+
   const renderer: ReactRenderer = {
     createRoot(identity: string, node: RenderNode): AdapterRoot {
       // Each root owns a container attached under `document`; it is the anchor
       // for identity and for the native interaction listener, and it gives the
       // reconciler a live DOM host to mount the rendered content into.
-      const host = container ?? document.body;
-      const rootContainer = document.createElement("div");
-      host.appendChild(rootContainer);
-      const reactRoot = createReactRoot(rootContainer);
-      // Flush synchronously: the port contract reads the mounted DOM the instant
-      // this returns, but `react-dom` otherwise only schedules the render.
-      flushSync(() => {
-        reactRoot.render(createElement(VelkrenTree, { node, views }));
-      });
-      // Identity is stamped imperatively on the container (never a React prop):
-      // a re-render alone would not restore an out-of-band-removed attribute.
-      stampIdentity(rootContainer, identity);
-      const root: ReactAdapterRoot = {
-        container: rootContainer,
-        reactRoot,
-        identity,
-        registrations: new Map(),
-        listeners: new Map(),
-        disposed: false,
-      };
+      const root = mountRootInto(container ?? document.body, identity, node);
+      rootsByIdentity.set(identity, root);
+      return root;
+    },
+
+    mountChild(
+      parent: AdapterRoot,
+      anchor: string,
+      identity: string,
+      node: RenderNode,
+    ): AdapterRoot {
+      const parentRoot = asRoot(parent);
+      const anchorElement = parentRoot.anchors.get(anchor);
+      // A stale entry (the view that registered it stopped rendering on a
+      // later commit, detaching the element from the root's own container)
+      // is treated the same as never registered, rather than silently
+      // mounting into an invisible node. Checked against the root's own
+      // container -- not global document connectivity, since the whole
+      // render tree may legitimately be off-document (e.g. in tests).
+      if (
+        anchorElement === undefined ||
+        !parentRoot.container.contains(anchorElement)
+      ) {
+        throw new Error(
+          `Velkren: no anchor named ${JSON.stringify(anchor)} was registered on the parent root`,
+        );
+      }
+      // An independent React root, not a portal: Velkren's own interaction
+      // capture is per-root-container native listeners entirely outside
+      // React's reconciler, so no framework-level coordination is needed.
+      const root = mountRootInto(anchorElement, identity, node);
       rootsByIdentity.set(identity, root);
       return root;
     },
@@ -125,7 +192,11 @@ export function createReactRenderer(
       if (adapterRoot.disposed) return;
       flushSync(() => {
         adapterRoot.reactRoot.render(
-          createElement(VelkrenTree, { node, views }),
+          createElement(VelkrenTree, {
+            node,
+            views,
+            anchors: adapterRoot.anchors,
+          }),
         );
       });
       // Re-stamp: reconciliation updates content but does not touch the
@@ -166,6 +237,14 @@ export function createReactRenderer(
       adapterRoot.registrations.set(type, deliver);
       if (!adapterRoot.listeners.has(type)) {
         const listener: EventListener = (event) => {
+          // A child root's container can be nested inside this one (mounted
+          // via mountChild); an interaction inside it still bubbles here
+          // natively. Ignore it if the nearest identity-bearing ancestor is
+          // not this container -- it belongs to that more deeply nested
+          // root instead.
+          if (!belongsToContainer(event.target, adapterRoot.container)) {
+            return;
+          }
           // Snapshot at the adapter boundary; the live node and native event
           // stay in this package.
           adapterRoot.registrations.get(type)?.(snapshotNativeEvent(event));
@@ -203,6 +282,21 @@ export function createReactRenderer(
 }
 
 /**
+ * `true` when `container` is the nearest ancestor of `target` (inclusive)
+ * carrying the projection identity attribute. A nested child root's
+ * container -- mounted via `mountChild` inside this one -- would be a
+ * closer match than the parent, so this is `false` for an interaction that
+ * structurally belongs to that nested root instead.
+ */
+function belongsToContainer(
+  target: EventTarget | null,
+  container: HTMLElement,
+): boolean {
+  if (!(target instanceof Element)) return true;
+  return target.closest(`[${PROJECTION_IDENTITY_ATTRIBUTE}]`) === container;
+}
+
+/**
  * Capture selected native-event fields as an immutable snapshot. The live DOM
  * node and native event object are never returned or forwarded (mirrors the
  * SolidJS `snapshotNativeEvent` boundary).
@@ -222,11 +316,22 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 interface VelkrenTreeProps {
   readonly node: RenderNode;
   readonly views: ReactViewRegistry;
+  readonly anchors: Map<string, HTMLElement>;
 }
 
-/** Render a RenderNode tree with `React.createElement` (no JSX). */
-function VelkrenTree({ node, views }: VelkrenTreeProps): ReactElement {
-  return renderNode(node, views);
+/** Render a RenderNode tree with `React.createElement` (no JSX), providing
+ * `RegisterAnchorContext` once for the whole tree so any nested view can opt
+ * into exposing an anchor without threading an extra prop through every
+ * primitive element in between. */
+function VelkrenTree({ node, views, anchors }: VelkrenTreeProps): ReactElement {
+  const registerAnchor: RegisterAnchor = (name, element) => {
+    anchors.set(name, element);
+  };
+  return createElement(
+    RegisterAnchorContext.Provider,
+    { value: registerAnchor },
+    renderNode(node, views),
+  );
 }
 
 /** Tags React treats as controlled form elements: a `value` prop installs
@@ -244,7 +349,9 @@ function renderNode(
   // Registry check first, for every node incl. the root: on a hit render the
   // registered view as a self-contained leaf with the node's RAW attributes as
   // props — no `translateAttribute`/`stringifyAttribute` translation and no
-  // children projected into it. On a miss, fall through to the primitive path.
+  // children auto-projected into it. `registerAnchor` reaches the view via
+  // `RegisterAnchorContext`, not a prop, so this call site and `ReactView`'s
+  // prop type are both unchanged by that feature.
   const view = views[node.kind];
   if (view !== undefined) {
     return key === undefined

@@ -615,4 +615,100 @@ describe("SolidJS renderer port", () => {
     await Promise.resolve();
     expect(renders).toBe(2);
   });
+
+  describe("native nested views", () => {
+    /** A native "dialog" view exposing a body element as a named anchor a
+     * child projection can be mounted into. */
+    const dialog: SolidView = (_props, context) => {
+      const el = document.createElement("dialog");
+      const body = document.createElement("div");
+      body.setAttribute("data-role", "body");
+      context.registerAnchor("body", body);
+      el.appendChild(body);
+      return el;
+    };
+
+    it("mounts a child projection into a registered anchor, isolated from the parent", () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const body = renderer.container.querySelector('[data-role="body"]');
+      const childSection = body?.querySelector("section");
+      expect(childSection?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+
+      // The child's own container carries its own identity attribute inside
+      // the anchor, distinct from the parent's.
+      const childContainer = body?.querySelector(
+        `[${PROJECTION_IDENTITY_ATTRIBUTE}]`,
+      );
+      expect(childContainer?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+        "child-1",
+      );
+
+      const parentDeliveries: JsonObject[] = [];
+      const childDeliveries: JsonObject[] = [];
+      renderer.registerInteraction(parentRoot, "click", (s) =>
+        parentDeliveries.push(s),
+      );
+      renderer.registerInteraction(childRoot, "click", (s) =>
+        childDeliveries.push(s),
+      );
+      childSection?.dispatchEvent(new Event("click", { bubbles: true }));
+      // Only the child's own listener fires -- the containment guard stops
+      // the bubbled event from also reaching the parent's listener, even
+      // though the child's container is nested inside the parent's DOM.
+      expect(childDeliveries).toHaveLength(1);
+      expect(parentDeliveries).toHaveLength(0);
+    });
+
+    it("throws a clear error when the named anchor was never registered", () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      expect(() =>
+        renderer.mountChild(
+          parentRoot,
+          "no-such-anchor",
+          "child-1",
+          node("section"),
+        ),
+      ).toThrow(/no anchor named/);
+    });
+
+    it("removing the child root leaves the parent view intact", () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section"),
+      );
+      renderer.removeRoot(childRoot);
+      const body = renderer.container.querySelector('[data-role="body"]');
+      expect(body?.querySelector("section")).toBeNull();
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+    });
+
+    it("treats a stale anchor (the view stopped rendering it) as unregistered", async () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      // A later commit swaps the view out for a plain primitive with no
+      // anchor -- the previously-registered "body" element is now detached
+      // from the root's own container, even though the Map entry lingers.
+      renderer.commit(parentRoot, "parent-1", node("section"));
+      await Promise.resolve();
+      expect(() =>
+        renderer.mountChild(parentRoot, "body", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+    });
+  });
 });

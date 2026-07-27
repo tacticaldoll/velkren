@@ -33,11 +33,15 @@ instance: ComponentInstance, plan: RenderPlan): Promise<Projection>`.**
   adapter knows where to mount a child projection a caller directs there via
   `mountChild`. Each adapter's own component-invocation model shapes how:
   Solid's view function (called directly by the adapter) receives a second
-  `context` argument with `registerAnchor(name, element)`; React's and Vue's
-  view components (invoked by their own reconciler, not by the adapter)
-  receive a `registerAnchor` function mixed into their props instead, since
-  neither framework lets the adapter pass an extra call argument to a
-  component it does not itself invoke.
+  `context` argument with `registerAnchor(name, element)`. React's and Vue's
+  view components are invoked by their own reconciler, not by the adapter,
+  so there is no extra call argument to add — `registerAnchor` reaches the
+  view through each framework's own context mechanism instead (React's
+  `createContext`/`useContext`, Vue's `provide`/`inject`), provided once for
+  the whole tree by a small internal wrapper component, rather than mixed
+  into the view's props (mixing it into a `JsonObject`-typed props object
+  was tried and rejected — it silently breaks assignability of an existing
+  view to the new view type; see design.md).
 - **`openspec/specs/view-registry/spec.md`'s leaf-only requirement is
   relaxed, not removed**: an _unmodified_ registered view remains exactly
   the leaf it is today (the adapter still never auto-projects
@@ -79,9 +83,11 @@ instance: ComponentInstance, plan: RenderPlan): Promise<Projection>`.**
   `packages/react-adapter/src/index.ts`, `packages/vue-adapter/src/index.ts`
   each implement `mountChild` and the anchor-registration mechanism.
 - **APIs**: `RendererPort` and `ProjectionRuntime` each gain one new method
-  (additive, not a signature change to any existing method).
-  `SolidView`/`ReactView`/`VueView` gain an additional, ignorable
-  parameter/prop.
+  (additive, not a signature change to any existing method). `SolidView`
+  gains an additional, ignorable second call argument. `ReactView`/`VueView`
+  are completely unchanged; the new mechanism reaches a view through each
+  framework's own context channel (`RegisterAnchorContext`/
+  `REGISTER_ANCHOR_KEY`, both newly exported) instead of a prop.
 - **Dependencies**: none added.
 - **Non-Goals**: no automatic resolution of a nested child from
   `RenderNode.slots`/a `Reference` fill — `slots` already exists in core as

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { h } from "vue";
+import { h, inject } from "vue";
 
 import {
   PROJECTION_IDENTITY_ATTRIBUTE,
@@ -8,7 +8,11 @@ import {
   type RenderNode,
 } from "@velkren/core";
 
-import { createVueRenderer, type VueView } from "../src/index.js";
+import {
+  createVueRenderer,
+  REGISTER_ANCHOR_KEY,
+  type VueView,
+} from "../src/index.js";
 
 function node(
   kind: string,
@@ -31,6 +35,20 @@ describe("vue renderer", () => {
     expect(
       container?.querySelector("[data-badge]")?.getAttribute("data-badge"),
     ).toBe("hi");
+    renderer.removeRoot(root);
+  });
+
+  it("delivers a plain (non-nested) interaction to its own root's listener", () => {
+    const renderer = createVueRenderer();
+    const root = renderer.createRoot("id-plain", node("button"));
+    const container = renderer.elementForIdentity("id-plain");
+    const button = container?.querySelector("button");
+
+    const deliveries: JsonObject[] = [];
+    renderer.registerInteraction(root, "click", (s) => deliveries.push(s));
+    button?.dispatchEvent(new Event("click", { bubbles: true }));
+
+    expect(deliveries).toHaveLength(1);
     renderer.removeRoot(root);
   });
 
@@ -99,5 +117,100 @@ describe("vue renderer", () => {
     expect(input.selectionStart).toBe(2);
     expect(input.selectionEnd).toBe(2);
     renderer.removeRoot(root);
+  });
+
+  describe("native nested views", () => {
+    /** A native "dialog" view exposing a body element as a named anchor a
+     * child projection can be mounted into, via provide/inject (not a prop
+     * -- VueView's prop type is unaffected by this feature). */
+    const Dialog: VueView = () => {
+      const registerAnchor = inject(REGISTER_ANCHOR_KEY);
+      return h("dialog", null, [
+        h("div", {
+          "data-role": "body",
+          ref: (element: Element | null) => {
+            if (element instanceof HTMLElement) {
+              registerAnchor?.("body", element);
+            }
+          },
+        }),
+      ]);
+    };
+
+    it("mounts a child projection into a registered anchor, isolated from the parent", () => {
+      const renderer = createVueRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const container = renderer.elementForIdentity("parent-1");
+      const body = container?.querySelector('[data-role="body"]');
+      const childSection = body?.querySelector("section");
+      expect(childSection?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+
+      const childContainer = body?.querySelector(
+        `[${PROJECTION_IDENTITY_ATTRIBUTE}]`,
+      );
+      expect(childContainer?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
+        "child-1",
+      );
+
+      const parentDeliveries: JsonObject[] = [];
+      const childDeliveries: JsonObject[] = [];
+      renderer.registerInteraction(parentRoot, "click", (s) =>
+        parentDeliveries.push(s),
+      );
+      renderer.registerInteraction(childRoot, "click", (s) =>
+        childDeliveries.push(s),
+      );
+      childSection?.dispatchEvent(new Event("click", { bubbles: true }));
+      // Only the child's own listener fires -- the containment guard stops
+      // the bubbled event from also reaching the parent's listener, even
+      // though the child is an independent Vue render root nested inside
+      // the parent's DOM.
+      expect(childDeliveries).toHaveLength(1);
+      expect(parentDeliveries).toHaveLength(0);
+
+      renderer.removeRoot(childRoot);
+      renderer.removeRoot(parentRoot);
+    });
+
+    it("throws a clear error when the named anchor was never registered", () => {
+      const renderer = createVueRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      expect(() =>
+        renderer.mountChild(
+          parentRoot,
+          "no-such-anchor",
+          "child-1",
+          node("section"),
+        ),
+      ).toThrow(/no anchor named/);
+      renderer.removeRoot(parentRoot);
+    });
+
+    it("removing the child root leaves the parent view intact", () => {
+      const renderer = createVueRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section"),
+      );
+      renderer.removeRoot(childRoot);
+      const container = renderer.elementForIdentity("parent-1");
+      const body = container?.querySelector('[data-role="body"]');
+      expect(body?.querySelector("section")).toBeNull();
+      expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
+      renderer.removeRoot(parentRoot);
+    });
   });
 });

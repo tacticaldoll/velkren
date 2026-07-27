@@ -35,12 +35,26 @@ export interface SolidRenderer extends RendererPort {
 }
 
 /**
- * A registered Solid view: a function that receives a node's neutral
- * `attributes` (a `JsonObject`) as its props and returns a DOM element. Called
- * within the root's reactive owner so its effects dispose on unmount. SolidJS
- * and this view type live only in this package; `@velkren/core` never sees them.
+ * What a Solid view's second argument exposes: an opt-in hook to declare that
+ * an element inside the view's own output is a named anchor a child
+ * projection can later be mounted into via `mountChild`. Calling it is
+ * optional; a view that never calls it is an unaffected, strict leaf.
  */
-export type SolidView = (props: JsonObject) => HTMLElement;
+export interface SolidViewContext {
+  registerAnchor(name: string, element: HTMLElement): void;
+}
+
+/**
+ * A registered Solid view: a function that receives a node's neutral
+ * `attributes` (a `JsonObject`) as its props and a `SolidViewContext`, and
+ * returns a DOM element. Called within the root's reactive owner so its
+ * effects dispose on unmount. SolidJS and this view type live only in this
+ * package; `@velkren/core` never sees them.
+ */
+export type SolidView = (
+  props: JsonObject,
+  context: SolidViewContext,
+) => HTMLElement;
 
 /** An adapter-local registry resolving a node `kind` to a native Solid view. */
 export type SolidViewRegistry = Record<string, SolidView>;
@@ -61,6 +75,9 @@ interface SolidAdapterRoot {
   dispose(): void;
   disposed: boolean;
   readonly listeners: { type: string; listener: EventListener }[];
+  /** Elements a view rendered on this root registered as named anchors, for
+   * a later `mountChild` call to mount into. */
+  readonly anchors: Map<string, HTMLElement>;
 }
 
 /**
@@ -78,61 +95,102 @@ export function createSolidRenderer(
   const asRoot = (root: AdapterRoot): SolidAdapterRoot =>
     root as SolidAdapterRoot;
 
+  /** Build a per-root container mounted under `parentContainer`, shared by
+   * both a top-level `createRoot` (parent = host) and a nested
+   * `mountChild` (parent = a registered anchor element). */
+  function mountRootInto(
+    parentContainer: HTMLElement,
+    identity: string,
+    node: RenderNode,
+  ): SolidAdapterRoot {
+    let root!: SolidAdapterRoot;
+    createRoot((dispose) => {
+      // The per-root container is the anchor; the rendered content lives
+      // inside it. Identity and the interaction listener sit on the container.
+      const rootContainer = document.createElement("div");
+      const anchors = new Map<string, HTMLElement>();
+      const [current, setNode] = createSignal<RenderNode>(node);
+      // The last node this effect rendered, and the mounted content element,
+      // carried across effect runs so a commit can reconcile in place.
+      let previous: RenderNode | undefined;
+      let content: HTMLElement | undefined;
+      createRenderEffect(() => {
+        const next = current();
+        // Re-stamp identity on the container each run so a commit repairs an
+        // out-of-band-removed attribute (commit-repair contract).
+        rootContainer.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
+        if (content === undefined || previous === undefined) {
+          // First run: build the content once and mount it.
+          content = renderNodeElement(next, views, anchors);
+          rootContainer.replaceChildren(content);
+        } else {
+          // Commit: reconcile the existing element tree in place so unchanged
+          // primitive elements keep their DOM identity (and focus/caret). The
+          // effect re-run still disposes the prior run's view cleanups, so a
+          // registered view leaf re-instantiates with fresh props as before.
+          const patched = patchNode(content, previous, next, views, anchors);
+          if (patched !== content) {
+            rootContainer.replaceChild(patched, content);
+            content = patched;
+          }
+        }
+        previous = next;
+      });
+      const listeners: { type: string; listener: EventListener }[] = [];
+      root = {
+        rootContainer,
+        identity,
+        disposed: false,
+        listeners,
+        anchors,
+        setNode(next: RenderNode) {
+          setNode(() => next);
+        },
+        dispose() {
+          for (const { type, listener } of listeners) {
+            rootContainer.removeEventListener(type, listener);
+          }
+          listeners.length = 0;
+          dispose();
+        },
+      };
+    });
+    parentContainer.appendChild(root.rootContainer);
+    return root;
+  }
+
   const renderer: SolidRenderer = {
     container: host,
 
     createRoot(identity: string, node: RenderNode): AdapterRoot {
-      let root!: SolidAdapterRoot;
-      createRoot((dispose) => {
-        // The per-root container is the anchor; the rendered content lives
-        // inside it. Identity and the interaction listener sit on the container.
-        const rootContainer = document.createElement("div");
-        const [current, setNode] = createSignal<RenderNode>(node);
-        // The last node this effect rendered, and the mounted content element,
-        // carried across effect runs so a commit can reconcile in place.
-        let previous: RenderNode | undefined;
-        let content: HTMLElement | undefined;
-        createRenderEffect(() => {
-          const next = current();
-          // Re-stamp identity on the container each run so a commit repairs an
-          // out-of-band-removed attribute (commit-repair contract).
-          rootContainer.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
-          if (content === undefined || previous === undefined) {
-            // First run: build the content once and mount it.
-            content = renderNodeElement(next, views);
-            rootContainer.replaceChildren(content);
-          } else {
-            // Commit: reconcile the existing element tree in place so unchanged
-            // primitive elements keep their DOM identity (and focus/caret). The
-            // effect re-run still disposes the prior run's view cleanups, so a
-            // registered view leaf re-instantiates with fresh props as before.
-            const patched = patchNode(content, previous, next, views);
-            if (patched !== content) {
-              rootContainer.replaceChild(patched, content);
-              content = patched;
-            }
-          }
-          previous = next;
-        });
-        const listeners: { type: string; listener: EventListener }[] = [];
-        root = {
-          rootContainer,
-          identity,
-          disposed: false,
-          listeners,
-          setNode(next: RenderNode) {
-            setNode(() => next);
-          },
-          dispose() {
-            for (const { type, listener } of listeners) {
-              rootContainer.removeEventListener(type, listener);
-            }
-            listeners.length = 0;
-            dispose();
-          },
-        };
-      });
-      host.appendChild(root.rootContainer);
+      const root = mountRootInto(host, identity, node);
+      rootsByIdentity.set(identity, root);
+      return root;
+    },
+
+    mountChild(
+      parent: AdapterRoot,
+      anchor: string,
+      identity: string,
+      node: RenderNode,
+    ): AdapterRoot {
+      const parentRoot = asRoot(parent);
+      const anchorElement = parentRoot.anchors.get(anchor);
+      // A stale entry (the view that registered it stopped rendering on a
+      // later commit, detaching the element from the root's own container)
+      // is treated the same as never registered, rather than silently
+      // mounting into an invisible node. Checked against the root's own
+      // container -- not global document connectivity, since the whole
+      // render tree may legitimately be off-document (e.g. in tests).
+      if (
+        anchorElement === undefined ||
+        !parentRoot.rootContainer.contains(anchorElement)
+      ) {
+        throw new Error(
+          `Velkren: no anchor named ${JSON.stringify(anchor)} was registered on the parent root`,
+        );
+      }
+      const root = mountRootInto(anchorElement, identity, node);
       rootsByIdentity.set(identity, root);
       return root;
     },
@@ -167,6 +225,13 @@ export function createSolidRenderer(
     ): InteractionRegistration {
       const adapterRoot = asRoot(root);
       const listener: EventListener = (event) => {
+        // A child root's container can be nested inside this one (mounted via
+        // mountChild); an interaction inside it still bubbles here natively.
+        // Ignore it if the nearest identity-bearing ancestor is not this
+        // container -- it belongs to that more deeply nested root instead.
+        if (!belongsToContainer(event.target, adapterRoot.rootContainer)) {
+          return;
+        }
         // Snapshot at the adapter boundary; the live node and native event stay
         // in this package.
         deliver(snapshotNativeEvent(event));
@@ -204,6 +269,21 @@ export function createSolidRenderer(
 }
 
 /**
+ * `true` when `container` is the nearest ancestor of `target` (inclusive)
+ * carrying the projection identity attribute. A nested child root's
+ * container -- mounted via `mountChild` inside this one -- would be a
+ * closer match than the parent, so this is `false` for an interaction that
+ * structurally belongs to that nested root instead.
+ */
+function belongsToContainer(
+  target: EventTarget | null,
+  container: HTMLElement,
+): boolean {
+  if (!(target instanceof Element)) return true;
+  return target.closest(`[${PROJECTION_IDENTITY_ATTRIBUTE}]`) === container;
+}
+
+/**
  * Capture selected native-event fields as an immutable snapshot. The live DOM
  * node and native event object are never returned or forwarded.
  */
@@ -230,13 +310,20 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 function renderNodeElement(
   node: RenderNode,
   views: SolidViewRegistry,
+  anchors: Map<string, HTMLElement>,
 ): HTMLElement {
   const view = views[node.kind];
-  if (view !== undefined) return view(node.attributes);
+  if (view !== undefined) {
+    return view(node.attributes, {
+      registerAnchor(name, element) {
+        anchors.set(name, element);
+      },
+    });
+  }
   const element = document.createElement(node.kind);
   applyAttributes(element, node.attributes);
   element.replaceChildren(
-    ...node.children.map((child) => renderNodeElement(child, views)),
+    ...node.children.map((child) => renderNodeElement(child, views, anchors)),
   );
   return element;
 }
@@ -253,14 +340,15 @@ function patchNode(
   oldNode: RenderNode,
   newNode: RenderNode,
   views: SolidViewRegistry,
+  anchors: Map<string, HTMLElement>,
 ): HTMLElement {
   const oldIsView = views[oldNode.kind] !== undefined;
   const newIsView = views[newNode.kind] !== undefined;
   if (oldNode.kind !== newNode.kind || oldIsView || newIsView) {
-    return renderNodeElement(newNode, views);
+    return renderNodeElement(newNode, views, anchors);
   }
   patchAttributes(el, oldNode.attributes, newNode.attributes);
-  patchChildren(el, oldNode.children, newNode.children, views);
+  patchChildren(el, oldNode.children, newNode.children, views, anchors);
   return el;
 }
 
@@ -275,6 +363,7 @@ function patchChildren(
   oldChildren: readonly RenderNode[],
   newChildren: readonly RenderNode[],
   views: SolidViewRegistry,
+  anchors: Map<string, HTMLElement>,
 ): void {
   const common = Math.min(oldChildren.length, newChildren.length);
   for (let i = 0; i < common; i++) {
@@ -284,11 +373,12 @@ function patchChildren(
       oldChildren[i]!,
       newChildren[i]!,
       views,
+      anchors,
     );
     if (patched !== existing) parent.replaceChild(patched, existing);
   }
   for (let i = common; i < newChildren.length; i++) {
-    parent.appendChild(renderNodeElement(newChildren[i]!, views));
+    parent.appendChild(renderNodeElement(newChildren[i]!, views, anchors));
   }
   while (parent.children.length > newChildren.length) {
     parent.removeChild(parent.lastElementChild!);

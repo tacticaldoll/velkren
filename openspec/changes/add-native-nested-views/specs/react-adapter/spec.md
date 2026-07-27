@@ -2,17 +2,17 @@
 
 ### Requirement: React adapter implements child mounting
 
-The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. A registered React view SHALL receive a `registerAnchor(name, element)` function mixed into its props, since a React component is invoked by React's own reconciler rather than called directly by the adapter; calling it during the view's own render records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element.
+The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. The adapter SHALL expose a `registerAnchor(name, element)` function to a registered view through React context (`RegisterAnchorContext`), not through the view's props, so that `ReactView`'s prop type remains exactly `FunctionComponent<JsonObject>`, unchanged from before this requirement. Calling `registerAnchor` records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element.
 
 #### Scenario: A view registers an anchor and hosts a child
 
-- **WHEN** a React view calls the `registerAnchor` prop with a name and an element during its own render, and a caller later calls `mountChild` naming that anchor on the same root
+- **WHEN** a React view reads `registerAnchor` via `useContext(RegisterAnchorContext)` and calls it with a name and an element (typically from a `ref` callback, since a real DOM element only exists at commit), and a caller later calls `mountChild` naming that anchor on the same root
 - **THEN** the child's per-root container is created under the registered element, with its own identity attribute and native interaction listener, as an independent React root rather than a portal into the parent's own tree
 
 #### Scenario: An unmodified view is unaffected
 
-- **WHEN** a registered React view never calls the `registerAnchor` prop
-- **THEN** it renders exactly as it did before this requirement, receiving only its attribute-derived props
+- **WHEN** a registered React view never reads `RegisterAnchorContext`
+- **THEN** it renders exactly as it did before this requirement, receiving only its attribute-derived props, and its declared prop type is unaffected by this requirement
 
 ### Requirement: Interaction isolation between a nested child and its parent
 

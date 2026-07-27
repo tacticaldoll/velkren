@@ -18,6 +18,10 @@ export interface FakeRenderedNode {
 export interface FakeRoot {
   node: FakeRenderedNode;
   removed: boolean;
+  /** Set when this root was created via `mountChild`: which parent root and
+   * named anchor it was mounted under, for test inspection. */
+  readonly parent?: FakeRoot;
+  readonly anchor?: string;
 }
 
 type Delivery = (snapshot: JsonObject) => void;
@@ -58,6 +62,21 @@ export function createFakeRenderer(): FakeRenderer {
   return {
     createRoot(identity: string, node: RenderNode): AdapterRoot {
       const root: FakeRoot = { node: build(node, identity), removed: false };
+      tracked.push(root);
+      return root;
+    },
+    mountChild(
+      parent: AdapterRoot,
+      anchor: string,
+      identity: string,
+      node: RenderNode,
+    ): AdapterRoot {
+      const root: FakeRoot = {
+        node: build(node, identity),
+        removed: false,
+        parent: asRoot(parent),
+        anchor,
+      };
       tracked.push(root);
       return root;
     },

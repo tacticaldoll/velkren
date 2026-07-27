@@ -2,15 +2,15 @@
 
 ### Requirement: Inbound attribute crossing
 
-A membrane configuration MAY declare `observedAttributes`, a list of HTML
-attribute names. The membrane SHALL observe exactly those attributes on the
-host element and, for each, deliver its current string value (or `null` when
-absent) to any handler the host factory registers for that name through the
-mount context. A registered handler SHALL be invoked immediately with the
-attribute's current value at registration time, and again on every
-subsequent change to that attribute. The membrane MUST NOT interpret,
-validate, or transform the attribute value itself; it SHALL relay the raw
-string (or `null`) unchanged.
+The membrane SHALL support an optional `observedAttributes` declaration in
+its configuration, a list of HTML attribute names, and SHALL observe exactly
+those attributes on the host element. For each, it SHALL deliver its current
+string value (or `null` when absent) to any handler the host factory
+registers for that name through the mount context. A registered handler
+SHALL be invoked immediately with the attribute's current value at
+registration time, and again on every subsequent change to that attribute.
+The membrane MUST NOT interpret, validate, or transform the attribute value
+itself; it SHALL relay the raw string (or `null`) unchanged.
 
 #### Scenario: A handler receives the current value immediately
 
@@ -36,10 +36,11 @@ string (or `null`) unchanged.
 
 ### Requirement: Inbound data-property crossing
 
-A membrane configuration MAY declare `dataProperties`, a list of property
-names. The membrane SHALL define an accessor for each declared name on the
-element instance so that a host assignment (`element.name = value`) is
-captured. Assigning a declared data property SHALL deliver the assigned
+The membrane SHALL support an optional `dataProperties` declaration in its
+configuration, a list of property names, and SHALL define an accessor for
+each declared name on the element instance so that a host assignment
+(`element.name = value`) is captured. Assigning a declared data property
+SHALL deliver the assigned
 value to any handler the host factory registers for that name through the
 mount context, following the same immediate-then-on-change delivery as an
 observed attribute. The membrane MUST NOT validate, snapshot, or transform
@@ -72,10 +73,10 @@ element property assignment, unaffected by this requirement.
 
 ### Requirement: Crossing failures are reported, never thrown into a DOM callback
 
-A handler invoked for an attribute or data-property crossing MAY throw (for
-example, because it routed the value through a runtime API that rejects
-invalid data). The membrane SHALL catch such a throw and report it through
-its existing failure-reporting mechanism. The membrane MUST NOT allow a
+The membrane SHALL catch a throw from a handler invoked for an attribute or
+data-property crossing (for example, because the handler routed the value
+through a runtime API that rejects invalid data) and report it through its
+existing failure-reporting mechanism. The membrane MUST NOT allow a
 handler's throw to propagate synchronously out of `attributeChangedCallback`
 or a data-property setter.
 

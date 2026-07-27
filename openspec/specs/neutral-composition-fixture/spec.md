@@ -1,8 +1,8 @@
-# Two-Editor Validation
+# Neutral Composition Fixture
 
 ## Purpose
 
-Define the end-to-end validation scenario: minimal Panel, TextField, Button, and Dialog components with templates and a Stack layout, assembled into two isolated editors projected through the SolidJS adapter, proving identity isolation, template resilience, and scoped disposal compose correctly across every runtime domain.
+Define the shared, renderer-agnostic composition fixture: minimal Panel, TextField, Button, and Dialog components with templates and a Stack layout, assembled into two isolated editor instances. Solid, React, and Vue each mount the same `createEditorApp(renderer)` composition with only their renderer injected, proving identity isolation, template resilience, and scoped disposal compose identically across every adapter — the gold-standard neutrality proof. These are scenario fixtures and MUST NOT be exposed as a reusable public UI API.
 
 ## Requirements
 

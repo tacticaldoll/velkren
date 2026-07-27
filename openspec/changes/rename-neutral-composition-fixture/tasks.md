@@ -20,8 +20,8 @@
 
 ## 4. Spec promotion (sync step)
 
-- [ ] 4.1 Move `openspec/specs/two-editor-validation/` to `openspec/specs/neutral-composition-fixture/`, applying this change's ADDED requirements as the new file's content, with a `## Purpose` section adapted from the old one
-- [ ] 4.2 Apply the REMOVED delta to retire the old `two-editor-validation` capability (the directory move in 4.1 accomplishes this; confirm no `openspec/specs/two-editor-validation/` remains)
-- [ ] 4.3 Apply the MODIFIED delta to `openspec/specs/react-adapter/spec.md`'s "Cross-framework validation of renderer independence" requirement
-- [ ] 4.4 Apply the MODIFIED delta to `openspec/specs/vue-adapter/spec.md`'s "Vue two-editor validation" requirement, renaming its title to "Vue neutral-composition validation" for consistency with the updated body prose
-- [ ] 4.5 Update the prose in `openspec/specs/vue-adapter/spec.md`'s `## Purpose` section ("passes the shared two-editor validation" → references the new package/composition name) — a whole-file edit, not a delta operation, since Purpose text has no delta header
+- [x] 4.1 Move `openspec/specs/two-editor-validation/` to `openspec/specs/neutral-composition-fixture/`, applying this change's ADDED requirements as the new file's content, with a `## Purpose` section adapted from the old one
+- [x] 4.2 Apply the REMOVED delta to retire the old `two-editor-validation` capability (the directory move in 4.1 accomplishes this; confirm no `openspec/specs/two-editor-validation/` remains)
+- [x] 4.3 Apply the MODIFIED delta to `openspec/specs/react-adapter/spec.md`'s "Cross-framework validation of renderer independence" requirement
+- [x] 4.4 Apply the MODIFIED delta to `openspec/specs/vue-adapter/spec.md`'s "Vue two-editor validation" requirement, renaming its title to "Vue neutral-composition validation" for consistency with the updated body prose
+- [x] 4.5 Update the prose in `openspec/specs/vue-adapter/spec.md`'s `## Purpose` section ("passes the shared two-editor validation" → references the new package/composition name) — a whole-file edit, not a delta operation, since Purpose text has no delta header

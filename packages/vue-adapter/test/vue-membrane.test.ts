@@ -9,9 +9,12 @@ import {
   createInteractionBinding,
   createProjectionRuntime,
   createRuntime,
+  createStateBinding,
+  createStateRuntime,
   createTemplateClass,
   createTemplateRuntime,
   eventField,
+  type RenderNode,
   type TemplateNode,
 } from "@velkren/core";
 import {
@@ -105,6 +108,79 @@ function editorMembrane(records: Records): MembraneConfig {
   };
 }
 
+interface DataEditor {
+  readonly label: string;
+  readonly count: number;
+}
+
+function dataPanelNode(value: DataEditor): RenderNode {
+  return {
+    kind: "section",
+    attributes: { label: value.label, count: String(value.count) },
+    children: [
+      { kind: "input", attributes: {}, children: [], slots: {} },
+      { kind: "button", attributes: {}, children: [], slots: {} },
+    ],
+    slots: {},
+  };
+}
+
+/** Same inbound-crossing fixture as the Solid and React membrane
+ * validations, proving the shared @velkren/element core's attribute/property
+ * crossing behaves identically on the Vue adapter's renderer. */
+function editorMembraneWithData(records: Records): MembraneConfig {
+  return {
+    observedAttributes: ["label"],
+    dataProperties: ["count"],
+    async mount({
+      renderer,
+      onAttributeChange,
+      onPropertyAssign,
+    }): Promise<MembraneMount> {
+      const runtime = createRuntime({
+        id: `vue-data-${records.mounted.length}`,
+      });
+      const components = createComponentRuntime(runtime);
+      const templates = createTemplateRuntime(runtime);
+      const projection = createProjectionRuntime(runtime, renderer);
+      const state = createStateRuntime(runtime);
+      const binding = createStateBinding(runtime, projection);
+      components.register(panelClass);
+      templates.register(panelTemplate());
+
+      const panel = await components.create(panelClass.id);
+      const projected = await projection.mount(
+        panel,
+        templates.resolvePlan(panel),
+      );
+      const root = projected.roots.main;
+      if (root === undefined) throw new Error("panel root was not projected");
+
+      const cell = state.create<DataEditor>({ label: "", count: 0 });
+      binding.bind(root, cell, dataPanelNode);
+      records.mounted.push("data");
+
+      onAttributeChange("label", (value) => {
+        cell.update((previous) => ({ ...previous, label: value ?? "" }));
+      });
+      onPropertyAssign("count", (value) => {
+        if (value === undefined) return;
+        cell.update((previous) => ({
+          ...previous,
+          count: typeof value === "number" ? value : Number(value),
+        }));
+      });
+
+      return {
+        async dispose(): Promise<void> {
+          await panel.release();
+          await projected.release();
+        },
+      };
+    },
+  };
+}
+
 async function waitFor(predicate: () => boolean, steps = 50): Promise<void> {
   for (let i = 0; i < steps; i += 1) {
     if (predicate()) return;
@@ -168,5 +244,24 @@ describe("vue element membrane", () => {
       () => records.emissions.filter((id) => id === "b").length === 2,
     );
     expect(records.disposed).toEqual(["a"]);
+  });
+
+  it("crosses an observed attribute and a data property inward to drive state", async () => {
+    const records = makeRecords();
+    defineVelkrenElement("vue-editor-data", editorMembraneWithData(records));
+
+    const element = document.createElement("vue-editor-data");
+    document.body.appendChild(element);
+    await waitFor(() => records.mounted.includes("data"));
+    const section = (): HTMLElement | null => element.querySelector("section");
+
+    expect(section()?.getAttribute("label")).toBe("");
+    expect(section()?.getAttribute("count")).toBe("0");
+
+    element.setAttribute("label", "hello");
+    await waitFor(() => section()?.getAttribute("label") === "hello");
+
+    (element as unknown as { count: number }).count = 5;
+    await waitFor(() => section()?.getAttribute("count") === "5");
   });
 });

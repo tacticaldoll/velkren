@@ -177,12 +177,12 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-membrane-inbound-data
 
-- **Status**: candidate
-- **Outcome**: Add inbound data crossings to the membrane: observed attributes and host-assigned properties cross inward as immutable snapshots routed through bindings; the property channel is reserved for authorization handoff and rejects unsnapshotted application data.
+- **Status**: done
+- **Outcome**: Add inbound attribute and data-property crossings to the membrane (`observedAttributes`/`dataProperties` config, `onAttributeChange`/`onPropertyAssign` mount-context handlers), relaying a raw value to a host-registered handler that routes it through the existing state/binding domain's already-public `StateHandle.update` snapshot-or-reject boundary. No `@velkren/core` change. A handler's throw is caught and reported through the membrane's existing failure channel rather than propagating into `attributeChangedCallback` or a property setter. Identical behavior verified on Solid, React, and Vue.
 - **Dependencies**: `add-element-membrane`
 - **Why next**: The minimal membrane carries no host data; real embeds configure a component from host markup/props, which must not bypass the snapshot boundary.
-- **Acceptance**: An attribute change and a data property both snapshot and drive a binding, never mutating runtime state directly; the property channel otherwise carries only authorization handoffs.
-- **Deferred**: A typed props contract (`add-typed-view-props`).
+- **Acceptance**: An observed attribute change and a declared data-property assignment both cross inward and drive a bound `StateHandle`, never mutating runtime state directly; an invalid (non-strict-JSON) value is rejected without corrupting state; a pre-mount crossing is buffered and delivered once mounted.
+- **Deferred**: A typed props contract (`add-typed-view-props`). An authorization-handoff mechanism for the property channel was not built — no concrete design for an external reference entering a runtime exists yet, and the existing "Authority stays inside the runtime" requirement already forbids granting operate-authority through the element surface, so this stays unbuilt rather than invented speculatively.
 
 ## add-membrane-durable-lifetime
 

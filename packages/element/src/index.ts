@@ -24,6 +24,50 @@ export interface MembraneMountContext<R> {
    * no path back to the runtime.
    */
   readonly dispatchBoundaryEvent: (name: string, detail: JsonObject) => void;
+  /**
+   * Register a handler for a declared `observedAttributes` name. The handler
+   * fires immediately with the attribute's current value (or `null` if absent),
+   * then again on every later change. The membrane relays the raw string
+   * unchanged — it does not validate or transform it. Returns an unsubscribe
+   * function.
+   */
+  readonly onAttributeChange: (
+    name: string,
+    handler: AttributeChangeHandler,
+  ) => () => void;
+  /**
+   * Register a handler for a declared `dataProperties` name. The handler
+   * fires immediately with the property's current assigned value (`undefined`
+   * if nothing has been assigned yet), then again on every later assignment.
+   * The membrane relays the raw assigned value unchanged — it does not
+   * validate or snapshot it. Returns an unsubscribe function.
+   */
+  readonly onPropertyAssign: (
+    name: string,
+    handler: PropertyAssignHandler,
+  ) => () => void;
+}
+
+/** A handler for an inbound observed-attribute crossing. See
+ * {@link MembraneMountContext.onAttributeChange}. */
+export type AttributeChangeHandler = (value: string | null) => void;
+
+/** A handler for an inbound data-property crossing. See
+ * {@link MembraneMountContext.onPropertyAssign}. */
+export type PropertyAssignHandler = (value: unknown) => void;
+
+/** Invoke a crossing handler, reporting a throw through the membrane's
+ * failure channel instead of letting it propagate into the DOM callback that
+ * triggered it (`attributeChangedCallback` or a property setter). */
+function invokeCrossingHandler<Value>(
+  handler: (value: Value) => void,
+  value: Value,
+): void {
+  try {
+    handler(value);
+  } catch (error) {
+    reportMembraneError(error);
+  }
 }
 
 /**
@@ -60,6 +104,22 @@ export interface MembraneConfig<R> {
    * global stylesheets across the boundary.
    */
   readonly styles?: string;
+  /**
+   * HTML attribute names the membrane observes. Each named attribute's
+   * current value (or `null` when absent) crosses inward to any handler
+   * registered through {@link MembraneMountContext.onAttributeChange}. Absent
+   * or empty: no attribute crossing.
+   */
+  readonly observedAttributes?: readonly string[];
+  /**
+   * Property names the membrane defines an accessor for on the element
+   * instance. Assigning a declared name (`element.name = value`) crosses the
+   * raw value inward to any handler registered through
+   * {@link MembraneMountContext.onPropertyAssign}. A property name not
+   * listed here is never intercepted — it behaves as ordinary `HTMLElement`
+   * property assignment. Absent or empty: no property crossing.
+   */
+  readonly dataProperties?: readonly string[];
 }
 
 /** A renderer factory: binds a renderer to a container the membrane owns. */
@@ -86,6 +146,17 @@ let membraneBase: CustomElementConstructor | undefined;
 function getMembraneBase(): CustomElementConstructor {
   if (membraneBase !== undefined) return membraneBase;
   class VelkrenMembraneElement extends HTMLElement {
+    /** The platform's own opt-in mechanism: only attributes named here fire
+     * `attributeChangedCallback`. Read from the per-tag config, which is
+     * already attached to this specific subclass before `customElements.define`
+     * runs (the point at which the platform reads this getter). */
+    static get observedAttributes(): string[] {
+      const statics = this as unknown as MembraneStatics;
+      return statics.membraneConfig?.observedAttributes !== undefined
+        ? [...statics.membraneConfig.observedAttributes]
+        : [];
+    }
+
     /** The in-flight or resolved mount for the current generation; undefined
      * when nothing is mounted. */
     #mount: Promise<MembraneMount | undefined> | undefined;
@@ -97,6 +168,63 @@ function getMembraneBase(): CustomElementConstructor {
     /** The wrapper inside the shadow root, once attached; the renderer container
      * in shadow mode. Attached once and reused across mount cycles. */
     #shadowContainer: HTMLElement | undefined;
+    /** Current value of each observed attribute, independent of mount
+     * generation — describes the element's current DOM state, not any one
+     * mount's view of it. */
+    #attributeValues = new Map<string, string | null>();
+    /** Current value of each declared data property, independent of mount
+     * generation, for the same reason. */
+    #propertyValues = new Map<string, unknown>();
+    /** Handlers registered by the current mount for each observed attribute.
+     * Reset to empty on every fresh mount so a disposed mount's handler
+     * cannot fire into a new composition's state; untouched across a move. */
+    #attributeHandlers = new Map<string, Set<AttributeChangeHandler>>();
+    /** Handlers registered by the current mount for each declared data
+     * property. Same fresh-mount reset, same move exemption. */
+    #propertyHandlers = new Map<string, Set<PropertyAssignHandler>>();
+
+    constructor() {
+      super();
+      // Data-property accessors are defined here, not in connectedCallback,
+      // because a host may assign a property immediately after
+      // document.createElement — before the element is ever connected. The
+      // per-tag config is already available: construction only happens after
+      // customElements.define, by which point defineMembraneElement has
+      // already attached it to this constructor.
+      const { config } = this.#statics();
+      for (const name of config.dataProperties ?? []) {
+        Object.defineProperty(this, name, {
+          configurable: true,
+          enumerable: true,
+          get: (): unknown => this.#propertyValues.get(name),
+          set: (value: unknown): void => {
+            this.#propertyValues.set(name, value);
+            this.#dispatchProperty(name, value);
+          },
+        });
+      }
+    }
+
+    #dispatchAttribute(name: string, value: string | null): void {
+      const handlers = this.#attributeHandlers.get(name);
+      if (handlers === undefined) return;
+      for (const handler of handlers) invokeCrossingHandler(handler, value);
+    }
+
+    #dispatchProperty(name: string, value: unknown): void {
+      const handlers = this.#propertyHandlers.get(name);
+      if (handlers === undefined) return;
+      for (const handler of handlers) invokeCrossingHandler(handler, value);
+    }
+
+    attributeChangedCallback(
+      name: string,
+      _oldValue: string | null,
+      newValue: string | null,
+    ): void {
+      this.#attributeValues.set(name, newValue);
+      this.#dispatchAttribute(name, newValue);
+    }
 
     #statics(): {
       config: MembraneConfig<unknown>;
@@ -144,6 +272,12 @@ function getMembraneBase(): CustomElementConstructor {
       // resolves on its own microtasks, so a DOM signal is a request, not the
       // definition of lifecycle.
       this.#generation += 1;
+      // A disposed mount's handlers must not fire into a new composition's
+      // state; the current attribute/property values themselves are not
+      // reset, so the new mount's first registration sees the element's
+      // current state rather than null/undefined.
+      this.#attributeHandlers = new Map();
+      this.#propertyHandlers = new Map();
       const { config, createRenderer } = this.#statics();
       const renderer = createRenderer({ container: this.#container(config) });
       const dispatchBoundaryEvent = (
@@ -160,8 +294,46 @@ function getMembraneBase(): CustomElementConstructor {
           }),
         );
       };
+      const onAttributeChange = (
+        name: string,
+        handler: AttributeChangeHandler,
+      ): (() => void) => {
+        let handlers = this.#attributeHandlers.get(name);
+        if (handlers === undefined) {
+          handlers = new Set();
+          this.#attributeHandlers.set(name, handlers);
+        }
+        handlers.add(handler);
+        invokeCrossingHandler(handler, this.#attributeValues.get(name) ?? null);
+        const registered = handlers;
+        return () => {
+          registered.delete(handler);
+        };
+      };
+      const onPropertyAssign = (
+        name: string,
+        handler: PropertyAssignHandler,
+      ): (() => void) => {
+        let handlers = this.#propertyHandlers.get(name);
+        if (handlers === undefined) {
+          handlers = new Set();
+          this.#propertyHandlers.set(name, handlers);
+        }
+        handlers.add(handler);
+        invokeCrossingHandler(handler, this.#propertyValues.get(name));
+        const registered = handlers;
+        return () => {
+          registered.delete(handler);
+        };
+      };
       this.#mount = Promise.resolve(
-        config.mount({ renderer, element: this, dispatchBoundaryEvent }),
+        config.mount({
+          renderer,
+          element: this,
+          dispatchBoundaryEvent,
+          onAttributeChange,
+          onPropertyAssign,
+        }),
       ).catch((error: unknown) => {
         reportMembraneError(error);
         return undefined;

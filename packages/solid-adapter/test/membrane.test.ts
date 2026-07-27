@@ -9,10 +9,13 @@ import {
   createInteractionBinding,
   createProjectionRuntime,
   createRuntime,
+  createStateBinding,
+  createStateRuntime,
   createTemplateClass,
   eventField,
   PROJECTION_IDENTITY_ATTRIBUTE,
   createTemplateRuntime,
+  type RenderNode,
   type TemplateNode,
 } from "@velkren/core";
 import {
@@ -108,6 +111,90 @@ function editorMembrane(records: EditorRecords): MembraneConfig {
       return {
         async dispose(): Promise<void> {
           records.disposed.push(id);
+          await panel.release();
+          await projected.release();
+        },
+      };
+    },
+  };
+}
+
+interface DataEditor {
+  readonly label: string;
+  readonly count: number;
+}
+
+// A derive function for state-binding returns a RenderNode directly (not a
+// TemplateNode routed through template resolution), so every field is
+// required explicitly — there is no defaulting step here.
+function dataPanelNode(value: DataEditor): RenderNode {
+  return {
+    kind: "section",
+    attributes: { label: value.label, count: String(value.count) },
+    children: [
+      { kind: "input", attributes: {}, children: [], slots: {} },
+      { kind: "button", attributes: {}, children: [], slots: {} },
+    ],
+    slots: {},
+  };
+}
+
+/**
+ * A membrane configuration exercising inbound data crossings: an observed
+ * `label` attribute and a declared `count` data property both drive a bound
+ * StateHandle, and the projected `<section>` reflects both. Wiring the
+ * crossing to `cell.update` reuses the existing state/binding domain's
+ * snapshot-or-reject boundary — this fixture adds no validation of its own.
+ */
+function editorMembraneWithData(records: EditorRecords): MembraneConfig {
+  return {
+    observedAttributes: ["label"],
+    dataProperties: ["count"],
+    async mount({
+      renderer,
+      onAttributeChange,
+      onPropertyAssign,
+    }): Promise<MembraneMount> {
+      const runtime = createRuntime({
+        id: `data-editor-${records.mounted.length}`,
+      });
+      const components = createComponentRuntime(runtime);
+      const templates = createTemplateRuntime(runtime);
+      const projection = createProjectionRuntime(runtime, renderer);
+      const state = createStateRuntime(runtime);
+      const binding = createStateBinding(runtime, projection);
+      components.register(panelClass);
+      templates.register(panelTemplate());
+
+      const panel = await components.create(panelClass.id);
+      const projected = await projection.mount(
+        panel,
+        templates.resolvePlan(panel),
+      );
+      const root = projected.roots.main;
+      if (root === undefined) throw new Error("panel root was not projected");
+
+      const cell = state.create<DataEditor>({ label: "", count: 0 });
+      binding.bind(root, cell, dataPanelNode);
+      records.mounted.push("data");
+
+      onAttributeChange("label", (value) => {
+        cell.update((previous) => ({ ...previous, label: value ?? "" }));
+      });
+      onPropertyAssign("count", (value) => {
+        // undefined means "nothing assigned yet" -- keep the cell's initial
+        // default rather than coercing to a number (Number(undefined) is
+        // NaN, which would wrongly reject during the initial registration
+        // delivery, before any real assignment happened).
+        if (value === undefined) return;
+        cell.update((previous) => ({
+          ...previous,
+          count: typeof value === "number" ? value : Number(value),
+        }));
+      });
+
+      return {
+        async dispose(): Promise<void> {
           await panel.release();
           await projected.release();
         },
@@ -346,5 +433,77 @@ describe("element membrane", () => {
     const renderer = createSolidRenderer({ container: element });
     expect(typeof renderer.registerInteraction).toBe("function");
     expect(renderer.container).toBe(element);
+  });
+
+  it("crosses an observed attribute and a data property inward to drive state", async () => {
+    const records = makeRecords();
+    defineVelkrenElement(
+      "velkren-editor-data",
+      editorMembraneWithData(records),
+    );
+
+    const element = document.createElement("velkren-editor-data");
+    document.body.appendChild(element);
+    await waitFor(() => records.mounted.includes("data"));
+    const section = (): HTMLElement | null => element.querySelector("section");
+
+    expect(section()?.getAttribute("label")).toBe("");
+    expect(section()?.getAttribute("count")).toBe("0");
+
+    element.setAttribute("label", "hello");
+    await waitFor(() => section()?.getAttribute("label") === "hello");
+
+    (element as unknown as { count: number }).count = 5;
+    await waitFor(() => section()?.getAttribute("count") === "5");
+  });
+
+  it("delivers a pre-mount attribute and property as the initial value", async () => {
+    const records = makeRecords();
+    defineVelkrenElement(
+      "velkren-editor-data-premount",
+      editorMembraneWithData(records),
+    );
+
+    const element = document.createElement("velkren-editor-data-premount");
+    element.setAttribute("label", "early");
+    (element as unknown as { count: number }).count = 7;
+    document.body.appendChild(element);
+    await waitFor(() => records.mounted.includes("data"));
+
+    const section = element.querySelector("section");
+    expect(section?.getAttribute("label")).toBe("early");
+    expect(section?.getAttribute("count")).toBe("7");
+  });
+
+  it("reports an invalid data-property assignment instead of throwing or corrupting state", async () => {
+    const slot = globalThis as { reportError?: (value: unknown) => void };
+    const original = slot.reportError;
+    const errors: unknown[] = [];
+    slot.reportError = (value) => errors.push(value);
+    try {
+      const records = makeRecords();
+      defineVelkrenElement(
+        "velkren-editor-data-invalid",
+        editorMembraneWithData(records),
+      );
+      const element = document.createElement("velkren-editor-data-invalid");
+      document.body.appendChild(element);
+      await waitFor(() => records.mounted.includes("data"));
+      const section = (): HTMLElement | null =>
+        element.querySelector("section");
+
+      // Assigning NaN is not finite, so the underlying StateHandle.update
+      // rejects it (InvalidStateValueError); the membrane must catch that
+      // throw at its own boundary rather than let it escape the property
+      // setter, and state must remain whatever it was before.
+      expect(() => {
+        (element as unknown as { count: unknown }).count = Number.NaN;
+      }).not.toThrow();
+      await waitFor(() => errors.length > 0);
+      expect(errors).toHaveLength(1);
+      expect(section()?.getAttribute("count")).toBe("0");
+    } finally {
+      slot.reportError = original;
+    }
   });
 });

@@ -113,6 +113,42 @@ The React adapter SHALL capture interactions with a native listener it attaches 
 - **WHEN** a mounted React root is removed
 - **THEN** the adapter removes the container's native listeners and no further delivery occurs
 
+### Requirement: Controlled-value elements are never React-controlled
+
+The adapter SHALL exclude a `value` attribute from the React props of an
+`input`, `textarea`, or `select` primitive element, so React's own
+controlled-input tracking never installs on that DOM node. The adapter
+SHALL instead apply `value` to the rendered DOM node imperatively — via a
+callback ref attached to that element, invoked whenever React (re)commits
+it — comparing against the element's current `.value` property and
+skipping the assignment when already equal, and preserving text selection
+across a necessary assignment the same way the SolidJS adapter does. A
+registered view is never targeted by this mechanism: the ref is only ever
+attached to a primitive `input`/`textarea`/`select` element the adapter
+itself creates, never to a view's own output.
+
+#### Scenario: A controlled-value element stays editable
+
+- **WHEN** a primitive `input` node carries a `value` attribute and mounts
+  through the React adapter
+- **THEN** the rendered `<input>` receives no `value` prop from React, its
+  DOM `value` property is set imperatively via a ref callback, and typing
+  into it is not immediately overwritten on the next render
+
+#### Scenario: A same-value re-commit does not disturb the field
+
+- **WHEN** a commit's `value` attribute for a controlled-value element
+  equals its current `.value` property
+- **THEN** the adapter does not reassign the property, and the user's caret
+  position is unaffected
+
+#### Scenario: A non-form element's value attribute is unaffected
+
+- **WHEN** a primitive element whose kind is not `input`, `textarea`, or
+  `select` carries a `value` attribute
+- **THEN** the attribute is passed through as an ordinary React prop exactly
+  as before this change, with no imperative post-render handling
+
 ### Requirement: React adapter view registry
 
 The React adapter SHALL accept an optional view registry and consult it by node `kind` in its `renderNode` path — for the root node and children alike — before the primitive `createElement(kind)`, rendering a registered React component on a hit and falling back to the primitive element on a miss. A registered view receives the node's `attributes` as props and is a self-contained leaf. The registry and React view types MUST remain in the adapter package; `@velkren/core` MUST NOT reference them.

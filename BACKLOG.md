@@ -294,9 +294,9 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-input-value-binding
 
-- **Status**: candidate
-- **Outcome**: Let state drive a live text input's value across adapters without breaking editing — a state-bound `<input>` reflects the current value yet stays editable with a stable caret. Resolve the per-adapter controlled-input problem (React treats a `value` prop without `onChange` as read-only; setting `.value` on commit can move the caret; Solid sets `value` as an attribute, which does not update a user-edited property).
+- **Status**: done
+- **Outcome**: Let state drive a live text input's value across adapters without breaking editing. Solid and React each gained a `CONTROLLED_VALUE_TAGS` (`input`/`textarea`/`select`) crossing: Solid applies `value` as a live DOM property instead of `setAttribute` (which stops reaching the field once the HTML dirty-value flag is set); React excludes `value` from props for these tags and applies it via a callback ref instead of letting React's controlled-input machinery install and fight back. Both skip a redundant assignment and preserve text selection across a real change. Vue needed no source change — verified by reading `@vue/runtime-dom`'s own `patchDOMProp`, which already does this. No `@velkren/core` change.
 - **Dependencies**: `add-state-binding`
 - **Why next**: The reactive loop drives attribute/content views today; a real form needs a state-driven text field that a user can still type into. This is an adapter-spanning widget concern, deliberately split out of `add-state-binding`.
 - **Acceptance**: On each shipped adapter, a state-bound text input shows the current state value, remains editable, and does not jump the caret when state re-commits mid-edit; the mechanism stays inside the adapters with no renderer type in a core contract.
-- **Deferred**: Non-text controlled inputs (checkbox, select) beyond a first text-field proof.
+- **Deferred**: Non-text controlled inputs (checkbox, select-option state) beyond this first text-field proof.

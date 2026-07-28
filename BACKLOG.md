@@ -267,11 +267,12 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-keyed-node-reconcile
 
-- **Status**: candidate
-- **Outcome**: Add an optional renderer-neutral stable `key` to `RenderNode` and reconcile children by key across all three adapters (SolidJS swaps `indexArray`→`mapArray`; React/Vue swap `String(index)` for the node key), correcting element reuse when a state-driven child list inserts, removes, or reorders.
+- **Status**: done
+- **Outcome**: Add an optional renderer-neutral `key?: string` to both `RenderNode`/`TemplateNode` variants (primitive and view). Template-authoring (`freezeNode`) validates sibling key consistency (all-or-none, no duplicates) for the authored-template path only; a `RenderNode` a caller commits directly (e.g. a `state-binding` derivation) is deliberately left unchecked, matching the existing unchecked posture of `attributes`/`kind` at that same `commit()` boundary. React and Vue gate on "is this children array fully keyed" and, when so, use each child's real key (letting each framework's own reconciler do the work); when not fully keyed, every child uses its positional index, avoiding a real-key/synthesized-key collision. SolidJS (no framework child reconciler) gained an actual keyed-diff `patchKeyedChildren`, hardened by two adversarial-review findings during implementation: it sweeps every un-reused current DOM child (not only previously-keyed ones) to avoid leaking elements across an unkeyed→keyed transition or a duplicate old key, and it tracks per-commit claimed keys so a duplicate key within the new array cannot make one DOM element occupy two list positions (which would silently drop a row).
 - **Dependencies**: `fix-solid-commit-reconcile`, `add-state-binding`
-- **Why next**: Index-as-key is correct only for fixed-shape trees; the moment state drives a reordering collection, positional reconcile reuses the wrong element and lands focus/input on the wrong row. Earn this only when the first list-binding use case exists.
-- **Acceptance**: A state-driven list that reorders preserves each item's DOM element and focus by key on every adapter; `@velkren/core` gains only the optional `key` field.
+- **Why next**: Index-as-key is correct only for fixed-shape trees; the moment state drives a reordering collection, positional reconcile reuses the wrong element and lands focus/input on the wrong row.
+- **Acceptance**: A state-driven list that reorders preserves each item's DOM element and focus by key on every adapter (verified via direct `commit()` calls mirroring how a `state-binding` derivation drives it); `@velkren/core` gained only the optional `key` field plus template-authoring-time sibling-key validation.
+- **Deferred**: A specified outcome for a duplicate key or mixed keyed/unkeyed siblings reaching an adapter through the unchecked `commit()` path — each adapter avoids losing/leaking elements but does not guarantee which duplicate "wins" a position. Minimal-move-count optimization for the SolidJS keyed diff (correct O(n), not LIS-based). Mixed-framework trees (unchanged from `add-native-nested-views`).
 - **Deferred**: Mixed-framework trees.
 
 ## add-managed-state

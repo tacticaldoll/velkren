@@ -1,0 +1,22 @@
+{
+  "name": "@velkren/demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@velkren/core": "0.1.0",
+    "@velkren/neutral-composition-fixture": "0.1.0",
+    "@velkren/react-adapter": "0.1.0",
+    "@velkren/solid-adapter": "0.1.0",
+    "@velkren/vue-adapter": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.1.5"
+  }
+}

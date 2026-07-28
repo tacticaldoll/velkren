@@ -301,3 +301,12 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Why next**: The reactive loop drives attribute/content views today; a real form needs a state-driven text field that a user can still type into. This is an adapter-spanning widget concern, deliberately split out of `add-state-binding`.
 - **Acceptance**: On each shipped adapter, a state-bound text input shows the current state value, remains editable, and does not jump the caret when state re-commits mid-edit; the mechanism stays inside the adapters with no renderer type in a core contract.
 - **Deferred**: Non-text controlled inputs (checkbox, select-option state) beyond this first text-field proof.
+
+## add-demo-showcase
+
+- **Status**: done
+- **Outcome**: A new private, unpublished workspace package (`packages/demo`) bundles the existing `@velkren/neutral-composition-fixture`'s `createEditorApp` composition three times — once per shipped adapter — onto one static page (Vite, `base: "./"` for correct asset paths under a GitHub Pages project subpath), with a live activity log proving the two editors on each adapter stay isolated. Deployed via a new, fully separate `.github/workflows/deploy-demo.yml` (push to `main`, `actions/upload-pages-artifact` + `actions/deploy-pages`) that cannot block the existing `ci.yml` gate. No `@velkren/core` or adapter source changed; no test-only affordance (`simulateInteraction`) used — real DOM clicks only.
+- **Dependencies**: `extract-neutral-composition`, `add-ci-workflow`
+- **Why next**: The renderer-neutrality claim has been proven by tests since `extract-neutral-composition`, but only in Node/happy-dom — never visible in an actual browser to someone not reading test code.
+- **Acceptance**: A human can open the deployed URL, see all three adapters running the same composition side by side, click either editor's button on any adapter, and see only that editor's own activity appear in the log.
+- **Deferred**: Additional demo scenarios (native nested views, keyed-list reordering, membrane embedding) — a future iteration, not bundled into this first showcase. A repo admin must still enable GitHub Pages once (Settings → Pages → Source: GitHub Actions) before the workflow has anywhere to publish to.

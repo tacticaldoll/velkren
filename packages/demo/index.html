@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Velkren — cross-adapter demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 1100px;
+        padding: 2rem 1rem 4rem;
+      }
+      h1 {
+        margin-bottom: 0.25rem;
+      }
+      p.lede {
+        color: #666;
+        max-width: 65ch;
+      }
+      .columns {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-top: 2rem;
+      }
+      .column {
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        padding: 1rem;
+      }
+      .column h2 {
+        margin-top: 0;
+        font-size: 1.1rem;
+      }
+      .editor {
+        border: 1px dashed #999;
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin-block: 0.75rem;
+      }
+      .editor input,
+      .editor button {
+        display: block;
+        width: 100%;
+        margin-top: 0.4rem;
+        box-sizing: border-box;
+      }
+      #log {
+        margin-top: 2rem;
+        border-top: 1px solid #ccc;
+        padding-top: 1rem;
+      }
+      #log ul {
+        font-family: ui-monospace, monospace;
+        font-size: 0.9rem;
+        max-height: 12rem;
+        overflow-y: auto;
+        padding-left: 1.2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Velkren</h1>
+    <p class="lede">
+      The same renderer-neutral composition — two isolated editors, each a Panel
+      with a text field and a button — mounted unchanged on three different
+      adapters. Click a button in any editor below; only that editor's own event
+      appears in the activity log.
+    </p>
+    <div id="app" class="columns"></div>
+    <div id="log">
+      <h2>Activity log</h2>
+      <ul id="log-list"></ul>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

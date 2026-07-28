@@ -151,17 +151,22 @@ itself creates, never to a view's own output.
 
 ### Requirement: React adapter view registry
 
-The React adapter SHALL accept an optional view registry and consult it by node `kind` in its `renderNode` path — for the root node and children alike — before the primitive `createElement(kind)`, rendering a registered React component on a hit and falling back to the primitive element on a miss. A registered view receives the node's `attributes` as props and is a self-contained leaf. The registry and React view types MUST remain in the adapter package; `@velkren/core` MUST NOT reference them.
+The React adapter SHALL accept an optional view registry and consult it in its `renderNode` path — for the root node and children alike — only for a **view node** (a node carrying `node: "view"`), keyed by that node's `viewId`; a primitive node (carrying `kind`) MUST NOT trigger a registry lookup and always renders via `createElement(kind)`, unchanged. On a hit the adapter renders the registered React component, passing the view node's `props` as its props. A view node has no tag name to fall back to, so the React adapter MUST throw a clear error identifying the unregistered `viewId` when a view node's `viewId` is not registered (including when no registry is configured). The registry and React view types MUST remain in the adapter package; `@velkren/core` MUST NOT reference them.
 
 #### Scenario: React adapter renders a registered view
 
-- **WHEN** the React adapter is configured with a React component under a `kind` and projects a node with that `kind` (root or child)
-- **THEN** it renders the registered React component for that node with the node's attributes as props
+- **WHEN** the React adapter is configured with a React component under a `viewId` and projects a view node with that `viewId` (root or child)
+- **THEN** it renders the registered React component for that node with the node's `props` as props
 
-#### Scenario: React adapter falls back to the primitive on a miss
+#### Scenario: React adapter throws on an unregistered viewId
 
-- **WHEN** a node's `kind` is not registered (or no registry is configured)
-- **THEN** the React adapter renders it as a primitive DOM element unchanged
+- **WHEN** a view node's `viewId` is not registered (or no registry is configured)
+- **THEN** the React adapter throws a clear error identifying the unregistered `viewId`
+
+#### Scenario: A primitive node never triggers a registry lookup
+
+- **WHEN** a primitive node's `kind` string coincidentally matches a key in the configured view registry
+- **THEN** the React adapter still renders it as a primitive DOM element, since only a view node's `viewId` is consulted
 
 ### Requirement: React adapter implements child mounting
 

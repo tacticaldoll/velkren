@@ -164,6 +164,7 @@ export {
 export {
   createTemplateClass,
   isTemplateClass,
+  isViewNode,
   DuplicateTemplateBindingError,
   DuplicateTemplateRuntimeError,
   RenderPlanError,
@@ -171,14 +172,18 @@ export {
   TemplateResolutionError,
   type RenderNode,
   type RenderPlan,
+  type RenderPrimitiveNode,
+  type RenderViewNode,
   type ResolvedSlot,
   type TemplateClass,
   type TemplateContent,
   type TemplateDefinition,
   type TemplateExplanation,
   type TemplateNode,
+  type TemplatePrimitiveNode,
   type TemplateSlotDeclaration,
   type TemplateSlotFill,
+  type TemplateViewNode,
 } from "./template-class.js";
 export {
   createTemplateRuntime,

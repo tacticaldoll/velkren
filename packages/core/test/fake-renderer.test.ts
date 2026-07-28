@@ -8,11 +8,38 @@ function node(kind: string): RenderNode {
   return { kind, attributes: {}, children: [], slots: {} };
 }
 
+function viewNode(viewId: string, props: JsonObject = {}): RenderNode {
+  return { node: "view", viewId, props };
+}
+
 function only(renderer: ReturnType<typeof createFakeRenderer>): FakeRoot {
   const root = renderer.roots()[0];
   if (root === undefined) throw new Error("expected one root");
   return root;
 }
+
+describe("fake renderer view-node projection", () => {
+  it("projects a view node degenerately, distinguishable from a coincidentally-matching primitive", () => {
+    const renderer = createFakeRenderer();
+    const viewRoot = renderer.createRoot(
+      "root-1",
+      viewNode("dialog", { open: true }),
+    );
+    const viewNodeOut = only(renderer).node;
+    expect(viewNodeOut.isView).toBe(true);
+    expect(viewNodeOut.kind).toBe("dialog");
+    expect(viewNodeOut.attributes.open).toBe(true);
+    expect(viewNodeOut.children).toEqual([]);
+    expect(renderer.readIdentity(viewRoot)).toBe("root-1");
+
+    renderer.removeRoot(viewRoot);
+    const primitiveRoot = renderer.createRoot("root-2", node("dialog"));
+    const primitiveNodeOut = renderer.roots().at(-1)?.node;
+    expect(primitiveNodeOut?.isView).toBeUndefined();
+    expect(primitiveNodeOut?.kind).toBe("dialog");
+    renderer.removeRoot(primitiveRoot);
+  });
+});
 
 describe("fake renderer interaction registration", () => {
   it("delivers a simulated interaction to the registered callback", () => {

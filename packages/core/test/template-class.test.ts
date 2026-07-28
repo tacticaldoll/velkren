@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTemplateClass,
   isTemplateClass,
+  isViewNode,
   TemplateDefinitionError,
   type TemplateNode,
 } from "../src/template-class.js";
@@ -103,6 +104,27 @@ describe("TemplateClass definitions", () => {
     expect(r1.id).toBe("first::template/editor.panel.slots");
     expect(r2.id).toBe("second::template/editor.panel.slots");
     expect(r1.templateClass).toBe(template);
+  });
+
+  it("accepts a view node and rejects a blank viewId", () => {
+    const template = createTemplateClass("editor.panel.view", {
+      component: "component/editor.panel",
+      roots: {
+        main: { node: "view", viewId: "dialog", props: { open: true } },
+      },
+    });
+    const main = template.roots.main;
+    expect(isViewNode(main)).toBe(true);
+    expect(main).not.toHaveProperty("kind");
+    expect(main).not.toHaveProperty("children");
+    expect(main).not.toHaveProperty("slots");
+
+    expect(() =>
+      createTemplateClass("editor.panel.blank-view", {
+        component: "component/editor.panel",
+        roots: { main: { node: "view", viewId: "  " } },
+      }),
+    ).toThrow(TemplateDefinitionError);
   });
 
   it("exposes template APIs without generic kernels", () => {

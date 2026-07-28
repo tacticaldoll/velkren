@@ -1,10 +1,4 @@
-# view-registry Specification
-
-## Purpose
-
-TBD - created by archiving change add-view-registry. Update Purpose after archive.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Adapter view registry applying to any node
 

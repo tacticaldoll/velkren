@@ -9,6 +9,7 @@ import {
   type VNode,
 } from "vue";
 import {
+  isViewNode,
   PROJECTION_IDENTITY_ATTRIBUTE,
   type AdapterRoot,
   type InteractionRegistration,
@@ -66,20 +67,20 @@ export const REGISTER_ANCHOR_KEY: InjectionKey<RegisterAnchor> = Symbol(
 );
 
 /**
- * A registered Vue view: a functional component receiving a node's neutral
- * `attributes` (a `JsonObject`) as its props. Vue and this view type live only in
- * this package; `@velkren/core` never references them.
+ * A registered Vue view: a functional component receiving a view node's
+ * neutral `props` (a `JsonObject`) as its props. Vue and this view type live
+ * only in this package; `@velkren/core` never references them.
  */
 export type VueView = FunctionalComponent<JsonObject>;
 
-/** An adapter-local registry resolving a node `kind` to a native Vue view. */
+/** An adapter-local registry resolving a view node's `viewId` to a native Vue view. */
 export type VueViewRegistry = Record<string, VueView>;
 
 /** Optional configuration for the Vue renderer. */
 export interface VueRendererOptions {
   /** The shared host under which each root's per-root container is mounted. */
   readonly container?: HTMLElement;
-  /** A registry resolving a node `kind` to a native Vue view. */
+  /** A registry resolving a view node's `viewId` to a native Vue view. */
   readonly views?: VueViewRegistry;
 }
 
@@ -331,22 +332,25 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 }
 
 /**
- * Build a Vue vnode from a render node. Registry check first, for every node incl.
- * the root: on a hit render the registered view as a self-contained leaf with the
- * node's RAW attributes as props (no translation, no children projected into it).
- * On a miss, build the primitive element with its attributes and children.
+ * Build a Vue vnode from a render node. A view node is resolved by `viewId`,
+ * for every node incl. the root, and rendered as a self-contained leaf with
+ * its RAW `props` (no translation, no children projected into it, since a
+ * view node has none of its own). A primitive node never consults the
+ * registry; it is built with its attributes and children.
  */
 function buildVNode(
   node: RenderNode,
   views: VueViewRegistry,
   key?: string,
 ): VNode {
-  const view = views[node.kind];
-  if (view !== undefined) {
-    return h(
-      view,
-      key === undefined ? node.attributes : { key, ...node.attributes },
-    );
+  if (isViewNode(node)) {
+    const view = views[node.viewId];
+    if (view === undefined) {
+      throw new Error(
+        `Velkren: no view registered for viewId ${JSON.stringify(node.viewId)}`,
+      );
+    }
+    return h(view, key === undefined ? node.props : { key, ...node.props });
   }
   const props: Record<string, unknown> = {};
   if (key !== undefined) props.key = key;

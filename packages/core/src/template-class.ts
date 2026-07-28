@@ -16,12 +16,35 @@ export interface TemplateSlotDeclaration {
   readonly required?: boolean;
 }
 
-/** An authored, renderer-neutral template node. */
-export interface TemplateNode {
+/** An authored, renderer-neutral primitive template node: a DOM-shaped tag
+ * with literal attributes, children, and named slots. */
+export interface TemplatePrimitiveNode {
   readonly kind: string;
   readonly attributes?: JsonObject;
   readonly children?: readonly TemplateNode[];
   readonly slots?: readonly TemplateSlotDeclaration[];
+}
+
+/** An authored, renderer-neutral view template node: selects a registered
+ * adapter-native view by `viewId` and carries typed `props`, distinct from a
+ * primitive node's `attributes`. A view node is always a self-contained leaf
+ * — it has no `children` or `slots` of its own; nesting managed content under
+ * a view goes through the adapter's `mountChild`/anchor mechanism instead. */
+export interface TemplateViewNode {
+  readonly node: "view";
+  readonly viewId: string;
+  readonly props?: JsonObject;
+}
+
+/** An authored, renderer-neutral template node: either a primitive node or a
+ * view node. */
+export type TemplateNode = TemplatePrimitiveNode | TemplateViewNode;
+
+/** Narrow a template or render node to its view variant. */
+export function isViewNode(node: TemplateNode): node is TemplateViewNode;
+export function isViewNode(node: RenderNode): node is RenderViewNode;
+export function isViewNode(node: TemplateNode | RenderNode): boolean {
+  return "node" in node && node.node === "view";
 }
 
 /** The authored body of a TemplateClass: a bound class and named roots. */
@@ -56,13 +79,25 @@ export type ResolvedSlot =
   | { readonly kind: "reference"; readonly reference: Reference }
   | { readonly kind: "content"; readonly content: JsonValue };
 
-/** A normalized, renderer-neutral node in a render plan. */
-export interface RenderNode {
+/** A normalized, renderer-neutral primitive node in a render plan. */
+export interface RenderPrimitiveNode {
   readonly kind: string;
   readonly attributes: JsonObject;
   readonly children: readonly RenderNode[];
   readonly slots: Readonly<Record<string, ResolvedSlot>>;
 }
+
+/** A normalized, renderer-neutral view node in a render plan: a
+ * self-contained leaf with no `children` or `slots`. */
+export interface RenderViewNode {
+  readonly node: "view";
+  readonly viewId: string;
+  readonly props: JsonObject;
+}
+
+/** A normalized, renderer-neutral node in a render plan: either a primitive
+ * node or a view node. */
+export type RenderNode = RenderPrimitiveNode | RenderViewNode;
 
 /** A deeply frozen, renderer-neutral render plan for a component instance. */
 export interface RenderPlan {
@@ -218,6 +253,18 @@ export function templateClassOf(
 function freezeNode(node: TemplateNode, slotNames: Set<string>): TemplateNode {
   if (typeof node !== "object" || node === null) {
     throw new TemplateDefinitionError("a template node must be an object");
+  }
+  if (isViewNode(node)) {
+    if (typeof node.viewId !== "string" || node.viewId.trim() === "") {
+      throw new TemplateDefinitionError(
+        "a view template node's viewId must not be blank",
+      );
+    }
+    return Object.freeze({
+      node: "view",
+      viewId: node.viewId,
+      ...(node.props !== undefined ? { props: node.props } : {}),
+    });
   }
   if (typeof node.kind !== "string" || node.kind.trim() === "") {
     throw new TemplateDefinitionError("a template node kind must not be blank");

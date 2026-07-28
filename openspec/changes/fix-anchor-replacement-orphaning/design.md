@@ -9,6 +9,10 @@ Severity differs by adapter because of how much each one's rendering path rebuil
 
 Both cases funnel through the exact same fix, because both already maintain the exact same `anchors: Map<string, HTMLElement>` shape and the exact same commit-time render call (`patchNode` for Solid, `flushSync(() => reactRoot.render(...))` for React, `render(h(...), container)` for Vue) that is the only place anchors can change.
 
+This fix assumes `registerAnchor` is always called synchronously within the commit that triggers it — true for every `registerAnchor` call in the codebase today (a view calls it directly from its own render body or a `ref` callback, both synchronous within one commit's render/patch pass). If a view ever called `registerAnchor` from an independently-scheduled reactive primitive of its own (e.g. a Solid `createEffect` that reruns later, unrelated to the parent's own commit), that mutation would land outside any commit's snapshot/diff window and would not be reconciled — an explicit, acknowledged limitation of the snapshot-before/diff-after approach, not a gap this change tries to close.
+
+The React/Vue side of this fix is real but meaningfully rarer than Solid's: `registerAnchor` typically fires from a `ref` callback the view author writes, and both frameworks' own ref semantics re-invoke that callback on every render regardless of whether the underlying DOM node actually changed — so in the common case `anchors.set` re-runs with the *same* element reference, which the diff correctly treats as unchanged (a no-op). Actually forcing React/Vue to remount the host node (and therefore replace the anchor's element) requires the view itself to change that position's key or element type — a real, app-authorable scenario, but a narrower trigger than Solid's unconditional "a view is always re-instantiated on commit."
+
 ## Goals / Non-Goals
 
 **Goals:**

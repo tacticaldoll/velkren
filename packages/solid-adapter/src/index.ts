@@ -79,6 +79,14 @@ interface SolidAdapterRoot {
   /** Elements a view rendered on this root registered as named anchors, for
    * a later `mountChild` call to mount into. */
   readonly anchors: Map<string, HTMLElement>;
+  /** Which child root (if any) is currently mounted at each of this root's
+   * anchor names, so a later commit that replaces an anchor's element can
+   * reconcile a live child instead of silently orphaning it. */
+  readonly childrenByAnchor: Map<string, SolidAdapterRoot>;
+  /** Set only on a root created via `mountChild`: which parent root and
+   * anchor name it was mounted under, so disposal can clear the parent's
+   * `childrenByAnchor` entry without a second registry to keep in sync. */
+  mountedAt?: { parent: SolidAdapterRoot; anchor: string };
 }
 
 /**
@@ -95,6 +103,57 @@ export function createSolidRenderer(
 
   const asRoot = (root: AdapterRoot): SolidAdapterRoot =>
     root as SolidAdapterRoot;
+
+  /** Shared disposal, used both by an explicit `removeRoot` call and by
+   * `reconcileAnchoredChildren` when an anchor a child was mounted at
+   * disappears entirely. Clears the parent's `childrenByAnchor` entry only
+   * if it still points at this exact root, so disposing an already-replaced
+   * child never clobbers whatever was mounted at that anchor afterward. */
+  function disposeRoot(adapterRoot: SolidAdapterRoot): void {
+    if (adapterRoot.disposed) return;
+    adapterRoot.disposed = true;
+    rootsByIdentity.delete(adapterRoot.identity);
+    if (adapterRoot.mountedAt !== undefined) {
+      const { parent, anchor } = adapterRoot.mountedAt;
+      if (parent.childrenByAnchor.get(anchor) === adapterRoot) {
+        parent.childrenByAnchor.delete(anchor);
+      }
+    }
+    adapterRoot.dispose();
+    adapterRoot.rootContainer.remove();
+  }
+
+  /**
+   * After a commit may have replaced a root's registered anchors, reconcile
+   * any child mounted at one: if the anchor name still exists under a new
+   * element, move the child's own container there (a plain `appendChild` --
+   * no rebuild, no disposal, nothing about the child's own identity or
+   * interaction listeners changes); if the name is gone entirely, the child
+   * has nowhere to live and is released through the same path as an
+   * explicit `removeRoot`, with the loss reported rather than left silent.
+   */
+  function reconcileAnchoredChildren(
+    root: SolidAdapterRoot,
+    oldAnchors: ReadonlyMap<string, HTMLElement>,
+  ): void {
+    for (const [name, childRoot] of [...root.childrenByAnchor]) {
+      const newElement = root.anchors.get(name);
+      // A rebuilt PRIMITIVE (not a view) never calls `registerAnchor`, so a
+      // stale Map entry can persist unchanged even though its element was
+      // just detached by this same commit's rebuild -- containment, not
+      // just Map presence, is what actually says "this anchor still lives
+      // in the current tree" (mirrors `mountChild`'s own staleness guard).
+      const stillLive =
+        newElement !== undefined && root.rootContainer.contains(newElement);
+      if (!stillLive) {
+        root.childrenByAnchor.delete(name);
+        reportAnchorLost(name);
+        disposeRoot(childRoot);
+      } else if (newElement !== oldAnchors.get(name)) {
+        newElement.appendChild(childRoot.rootContainer);
+      }
+    }
+  }
 
   /** Build a per-root container mounted under `parentContainer`, shared by
    * both a top-level `createRoot` (parent = host) and a nested
@@ -129,11 +188,16 @@ export function createSolidRenderer(
           // primitive elements keep their DOM identity (and focus/caret). The
           // effect re-run still disposes the prior run's view cleanups, so a
           // registered view leaf re-instantiates with fresh props as before.
+          // Snapshot the anchors a view previously registered before this
+          // commit's own render/patch may replace them, so a live child
+          // mounted at one can be reconciled afterward instead of orphaned.
+          const oldAnchors = new Map(anchors);
           const patched = patchNode(content, previous, next, views, anchors);
           if (patched !== content) {
             rootContainer.replaceChild(patched, content);
             content = patched;
           }
+          reconcileAnchoredChildren(root, oldAnchors);
         }
         previous = next;
       });
@@ -144,6 +208,7 @@ export function createSolidRenderer(
         disposed: false,
         listeners,
         anchors,
+        childrenByAnchor: new Map(),
         setNode(next: RenderNode) {
           setNode(() => next);
         },
@@ -192,6 +257,8 @@ export function createSolidRenderer(
         );
       }
       const root = mountRootInto(anchorElement, identity, node);
+      root.mountedAt = { parent: parentRoot, anchor };
+      parentRoot.childrenByAnchor.set(anchor, root);
       rootsByIdentity.set(identity, root);
       return root;
     },
@@ -211,12 +278,7 @@ export function createSolidRenderer(
     },
 
     removeRoot(root: AdapterRoot): void {
-      const adapterRoot = asRoot(root);
-      if (adapterRoot.disposed) return;
-      adapterRoot.disposed = true;
-      rootsByIdentity.delete(adapterRoot.identity);
-      adapterRoot.dispose();
-      adapterRoot.rootContainer.remove();
+      disposeRoot(asRoot(root));
     },
 
     registerInteraction(
@@ -282,6 +344,21 @@ function belongsToContainer(
 ): boolean {
   if (!(target instanceof Element)) return true;
   return target.closest(`[${PROJECTION_IDENTITY_ATTRIBUTE}]`) === container;
+}
+
+/** A child mounted at a named anchor lost its home because a commit's
+ * rebuilt view stopped exposing that anchor at all. Reported through the
+ * same ambient failure channel `@velkren/element`'s membrane boundary uses
+ * (`globalThis.reportError`, falling back to `console.error`) rather than
+ * silently discarding the child. */
+function reportAnchorLost(anchor: string): void {
+  const error = new Error(
+    `Velkren: anchor ${JSON.stringify(anchor)} was removed while it still hosted a mounted child; the child has been released`,
+  );
+  const report = (globalThis as { reportError?: (value: unknown) => void })
+    .reportError;
+  if (typeof report === "function") report(error);
+  else console.error(error);
 }
 
 /**

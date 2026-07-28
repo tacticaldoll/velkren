@@ -981,6 +981,70 @@ describe("SolidJS renderer port", () => {
       expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
     });
 
+    it("reconciles a commit that replaces the anchor's element, preserving the mounted child", async () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+      const childContainer = renderer.elementForIdentity("child-1");
+      expect(childContainer).toBeDefined();
+
+      const childDeliveries: JsonObject[] = [];
+      renderer.registerInteraction(childRoot, "click", (s) =>
+        childDeliveries.push(s),
+      );
+
+      // Any commit rebuilds the dialog view unconditionally (patchNode
+      // always re-instantiates a view node), replacing its "body" anchor
+      // element with a fresh one.
+      renderer.commit(parentRoot, "parent-1", viewNode("dialog"));
+      await Promise.resolve();
+
+      // The child's own container element is the SAME reference as before --
+      // no rebuild, no disposal -- just moved under the new body element.
+      expect(renderer.elementForIdentity("child-1")).toBe(childContainer);
+      const newBody = renderer.container.querySelector('[data-role="body"]');
+      expect(newBody?.contains(childContainer!)).toBe(true);
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+
+      // The interaction listener registered before the rebuild still fires.
+      childContainer!
+        .querySelector("section")
+        ?.dispatchEvent(new Event("click", { bubbles: true }));
+      expect(childDeliveries).toHaveLength(1);
+    });
+
+    it("releases a mounted child and reports the loss when its anchor stops being exposed", async () => {
+      const renderer = createSolidRenderer({ views: { dialog } });
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
+      renderer.mountChild(parentRoot, "body", "child-1", node("section"));
+      expect(renderer.elementForIdentity("child-1")).toBeDefined();
+
+      const originalReportError = globalThis.reportError;
+      const errors: unknown[] = [];
+      (globalThis as { reportError?: (value: unknown) => void }).reportError = (
+        error: unknown,
+      ) => errors.push(error);
+      try {
+        // Swap the dialog out for a plain primitive with no "body" anchor at
+        // all -- the child has nowhere left to live.
+        renderer.commit(parentRoot, "parent-1", node("section"));
+        await Promise.resolve();
+      } finally {
+        globalThis.reportError = originalReportError;
+      }
+
+      expect(renderer.elementForIdentity("child-1")).toBeUndefined();
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toMatch(
+        /anchor "body" was removed while it still hosted/,
+      );
+    });
+
     it("treats a stale anchor (the view stopped rendering it) as unregistered", async () => {
       const renderer = createSolidRenderer({ views: { dialog } });
       const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));

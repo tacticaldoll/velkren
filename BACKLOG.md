@@ -227,7 +227,16 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 - **Dependencies**: `add-view-registry`
 - **Why next**: The view registry is leaf-only; real UI (a native Dialog wrapping managed content) needs the native-parent / Velkren-child boundary.
 - **Acceptance**: A registered native view hosts a managed child whose projection mounts inside it and releases with the parent, with no identity/interaction leakage.
-- **Deferred**: Mixed-framework trees (a Vue parent hosting a React child). Automatic nesting driven by `RenderNode.slots`/a `Reference` fill (still unconsumed by any adapter) — this change added only an explicit, app-called `mountChild`. Multiple children reconciled within one anchor. A re-rendering view that hosts a live child orphaning it (inherits an existing `patchNode` "always rebuild a view" constraint, not new).
+- **Deferred**: Mixed-framework trees (a Vue parent hosting a React child). Automatic nesting driven by `RenderNode.slots`/a `Reference` fill (still unconsumed by any adapter) — this change added only an explicit, app-called `mountChild`. Multiple children reconciled within one anchor. ~~A re-rendering view that hosts a live child orphaning it~~ — fixed in `fix-anchor-replacement-orphaning`.
+
+## fix-anchor-replacement-orphaning
+
+- **Status**: done
+- **Outcome**: A parent view's rebuild no longer silently orphans a child mounted at one of its anchors. Each adapter now tracks which child is mounted at each anchor name (`childrenByAnchor`) and snapshots its anchors before every commit's render/patch call: if an anchor name still exists after the commit (even under a brand-new element), the child's own container is re-parented via a plain `appendChild` — no rebuild, no disposal, identity and interaction listeners untouched; if the anchor name is gone entirely (checked by DOM containment, not just Map presence, since a rebuilt _primitive_ never touches the anchors Map and can leave a stale, already-detached entry behind), the child is released through the same path as an explicit `removeRoot` and the loss is reported through the adapter's `globalThis.reportError`/`console.error` convention rather than left silent. No `@velkren/core` change.
+- **Dependencies**: `add-native-nested-views`
+- **Why next**: `add-state-binding` driving a parent view's own re-commit and `add-native-nested-views`'s child hosting are both already shipped; combined, they silently destroyed a live child's DOM with no cleanup — a real collision between two shipped features, not a hypothetical, and in tension with PROJECT.md's "every managed instance has an explicit, observable, and idempotent lifecycle" invariant.
+- **Acceptance**: A child mounted at a named anchor survives a parent commit that replaces that anchor's element (proven for Solid, where every view commit rebuilds unconditionally, and for React/Vue via a forced key-driven remount); a child whose anchor disappears entirely is released and the loss is reported, never silent.
+- **Deferred**: Not attempting to make views stop rebuilding on every commit (this makes replacement safe, not rarer). Still no support for multiple children mounted at the same anchor name (unchanged from `add-native-nested-views`).
 
 ## add-typed-view-props
 

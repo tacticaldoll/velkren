@@ -757,5 +757,91 @@ describe("React renderer port", () => {
       expect(body?.querySelector("section")).toBeNull();
       expect(renderer.readIdentity(parentRoot)).toBe("parent-1");
     });
+
+    /** A Dialog whose body div's `key` follows a prop, so a commit that
+     * changes it forces React to unmount the old body element and mount a
+     * fresh one -- the "anchor element replaced" scenario `ref` callbacks
+     * alone don't reliably reproduce (React reuses the DOM node, and never
+     * re-fires `ref`, when the key/type at a position is unchanged). */
+    const KeyedDialog: ReactView = (props) => {
+      const registerAnchor = useContext(RegisterAnchorContext);
+      const bodyKey = typeof props.variant === "string" ? props.variant : "a";
+      return createElement("dialog", null, [
+        createElement("div", {
+          key: bodyKey,
+          "data-role": "body",
+          ref: (element: HTMLDivElement | null) => {
+            if (element !== null) registerAnchor?.("body", element);
+          },
+        }),
+      ]);
+    };
+
+    it("reconciles a commit that replaces the anchor's element, preserving the mounted child", () => {
+      const renderer = createReactRenderer({ views: { dialog: KeyedDialog } });
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        viewNode("dialog", { variant: "a" }),
+      );
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+      const childContainer = renderer.elementForIdentity("child-1");
+      expect(childContainer).toBeDefined();
+
+      const childDeliveries: JsonObject[] = [];
+      renderer.registerInteraction(childRoot, "click", (s) =>
+        childDeliveries.push(s),
+      );
+
+      // A different body key forces React to unmount the old body div and
+      // mount a fresh one, replacing the registered anchor element.
+      renderer.commit(
+        parentRoot,
+        "parent-1",
+        viewNode("dialog", { variant: "b" }),
+      );
+
+      expect(renderer.elementForIdentity("child-1")).toBe(childContainer);
+      const newBody = renderer
+        .elementForIdentity("parent-1")
+        ?.querySelector('[data-role="body"]');
+      expect(newBody?.contains(childContainer!)).toBe(true);
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+
+      childContainer!
+        .querySelector("section")
+        ?.dispatchEvent(new Event("click", { bubbles: true }));
+      expect(childDeliveries).toHaveLength(1);
+    });
+
+    it("releases a mounted child and reports the loss when its anchor stops being exposed", () => {
+      const renderer = createReactRenderer({ views: { dialog: Dialog } });
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
+      renderer.mountChild(parentRoot, "body", "child-1", node("section"));
+      expect(renderer.elementForIdentity("child-1")).toBeDefined();
+
+      const originalReportError = globalThis.reportError;
+      const errors: unknown[] = [];
+      (globalThis as { reportError?: (value: unknown) => void }).reportError = (
+        error: unknown,
+      ) => errors.push(error);
+      try {
+        // Swap the dialog out for a plain primitive with no "body" anchor at
+        // all -- the child has nowhere left to live.
+        renderer.commit(parentRoot, "parent-1", node("section"));
+      } finally {
+        globalThis.reportError = originalReportError;
+      }
+
+      expect(renderer.elementForIdentity("child-1")).toBeUndefined();
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toMatch(
+        /anchor "body" was removed while it still hosted/,
+      );
+    });
   });
 });

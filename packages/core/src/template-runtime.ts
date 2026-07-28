@@ -175,7 +175,12 @@ class DefaultTemplateRuntime implements TemplateRuntime {
           `view node ${JSON.stringify(node.viewId)} has non-JSON props: ${String(cause)}`,
         );
       }
-      return Object.freeze({ node: "view", viewId: node.viewId, props });
+      return Object.freeze({
+        node: "view",
+        viewId: node.viewId,
+        props,
+        ...(node.key !== undefined ? { key: node.key } : {}),
+      });
     }
     let attributes: JsonObject;
     try {
@@ -205,6 +210,7 @@ class DefaultTemplateRuntime implements TemplateRuntime {
     return Object.freeze({
       kind: node.kind,
       attributes,
+      ...(node.key !== undefined ? { key: node.key } : {}),
       children: Object.freeze(children),
       slots: Object.freeze(slots),
     });

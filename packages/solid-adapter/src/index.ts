@@ -360,11 +360,22 @@ function patchNode(
   return el;
 }
 
+/** A children array reconciles by key only when EVERY sibling carries one;
+ * a mixed or fully-unkeyed array always takes the positional path. */
+function isKeyedList(children: readonly RenderNode[]): boolean {
+  return (
+    children.length > 0 && children.every((child) => child.key !== undefined)
+  );
+}
+
 /**
- * Reconcile a primitive element's children by index: patch the common prefix in
- * place, append built elements for new tail nodes, and remove trailing elements
- * for dropped nodes. Index-based (a child's position identifies it); stable-key
- * matching for reordering lists is a separate future change.
+ * Reconcile a primitive element's children. When neither side is a fully-keyed
+ * list, children reconcile by index: patch the common prefix in place, append
+ * built elements for new tail nodes, and remove trailing elements for dropped
+ * nodes. When either side is fully keyed, delegate to `patchKeyedChildren`
+ * instead, since a keyed list's children must reconcile by identity, not
+ * position (an inserted/removed/reordered item elsewhere in the list must not
+ * shift every following item's DOM element).
  */
 function patchChildren(
   parent: HTMLElement,
@@ -373,6 +384,10 @@ function patchChildren(
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
 ): void {
+  if (isKeyedList(oldChildren) || isKeyedList(newChildren)) {
+    patchKeyedChildren(parent, oldChildren, newChildren, views, anchors);
+    return;
+  }
   const common = Math.min(oldChildren.length, newChildren.length);
   for (let i = 0; i < common; i++) {
     const existing = parent.children[i] as HTMLElement;
@@ -390,6 +405,77 @@ function patchChildren(
   }
   while (parent.children.length > newChildren.length) {
     parent.removeChild(parent.lastElementChild!);
+  }
+}
+
+/**
+ * Reconcile a children array by key rather than position. Matched keys keep
+ * their DOM element (patched in place, or rebuilt if `patchNode` decides the
+ * kind/variant changed); unmatched new keys get a freshly built element.
+ *
+ * The old side is not guaranteed to have been fully keyed itself -- a caller
+ * committing a `RenderNode` directly (e.g. a `state-binding` derivation)
+ * bypasses template-authoring's key validation, so a children array can
+ * legally transition between unkeyed and fully-keyed across a single commit.
+ * To avoid leaking stale DOM elements across that transition (or across a
+ * duplicate old key, which this unchecked boundary also permits), the removal
+ * step below sweeps every current child element not reused by a match, not
+ * only elements that were previously keyed.
+ */
+function patchKeyedChildren(
+  parent: HTMLElement,
+  oldChildren: readonly RenderNode[],
+  newChildren: readonly RenderNode[],
+  views: SolidViewRegistry,
+  anchors: Map<string, HTMLElement>,
+): void {
+  const oldByKey = new Map<
+    string,
+    { node: RenderNode; element: HTMLElement }
+  >();
+  oldChildren.forEach((child, i) => {
+    if (child.key !== undefined) {
+      oldByKey.set(child.key, {
+        node: child,
+        element: parent.children[i] as HTMLElement,
+      });
+    }
+  });
+
+  // A key already claimed by an earlier new child (a duplicate key within
+  // `newChildren`, only reachable through the unchecked `commit()` boundary)
+  // must not be matched again -- reusing the same old element for two new
+  // positions would make one DOM node occupy two slots in `nextElements`,
+  // silently dropping a row rather than merely leaving an unspecified winner.
+  const claimed = new Set<string>();
+  const reused = new Set<HTMLElement>();
+  const nextElements = newChildren.map((newChild) => {
+    const match =
+      newChild.key !== undefined && !claimed.has(newChild.key)
+        ? oldByKey.get(newChild.key)
+        : undefined;
+    if (newChild.key !== undefined) claimed.add(newChild.key);
+    const element =
+      match === undefined
+        ? renderNodeElement(newChild, views, anchors)
+        : patchNode(match.element, match.node, newChild, views, anchors);
+    reused.add(element);
+    return element;
+  });
+
+  // Snapshot before removing: `parent.children` is a live HTMLCollection that
+  // would skip entries if we removed while iterating it directly.
+  for (const element of Array.from(parent.children) as HTMLElement[]) {
+    if (!reused.has(element)) element.remove();
+  }
+
+  let refNode: ChildNode | null = parent.firstChild;
+  for (const element of nextElements) {
+    if (element === refNode) {
+      refNode = refNode.nextSibling;
+    } else {
+      parent.insertBefore(element, refNode);
+    }
   }
 }
 

@@ -161,6 +161,131 @@ describe("vue renderer", () => {
     renderer.removeRoot(root);
   });
 
+  describe("keyed child reconciliation", () => {
+    function listOf(
+      items: readonly { key: string; label: string }[],
+    ): RenderNode {
+      return {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: items.map((item) => ({
+          kind: "li",
+          attributes: { label: item.label },
+          children: [],
+          slots: {},
+          key: item.key,
+        })),
+      };
+    }
+
+    it("preserves each key's DOM element identity across a reorder", () => {
+      const renderer = createVueRenderer();
+      const root = renderer.createRoot(
+        "id-keyed",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+          { key: "c", label: "Carol" },
+        ]),
+      );
+      const list = renderer.elementForIdentity("id-keyed")
+        ?.firstElementChild as HTMLElement;
+      const [elA, elB, elC] = Array.from(list.children) as HTMLElement[];
+      (elB as HTMLElement & { marker?: string }).marker = "still-bob";
+
+      renderer.commit(
+        root,
+        "id-keyed",
+        listOf([
+          { key: "c", label: "Carol" },
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+
+      const reordered = Array.from(list.children) as HTMLElement[];
+      expect(reordered.map((el) => el.getAttribute("label"))).toEqual([
+        "Carol",
+        "Alice",
+        "Bob",
+      ]);
+      expect(reordered[0]).toBe(elC);
+      expect(reordered[1]).toBe(elA);
+      expect(reordered[2]).toBe(elB);
+      expect((reordered[2] as HTMLElement & { marker?: string }).marker).toBe(
+        "still-bob",
+      );
+      renderer.removeRoot(root);
+    });
+
+    it("leaves an unkeyed list's reconciliation unaffected", () => {
+      const renderer = createVueRenderer();
+      const root = renderer.createRoot("id-unkeyed", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Alice" }),
+          node("li", { label: "Bob" }),
+        ],
+      });
+      const list = renderer.elementForIdentity("id-unkeyed")
+        ?.firstElementChild as HTMLElement;
+      expect(
+        Array.from(list.children).map((el) => el.getAttribute("label")),
+      ).toEqual(["Alice", "Bob"]);
+
+      renderer.commit(root, "id-unkeyed", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Bob" }),
+          node("li", { label: "Alice" }),
+        ],
+      });
+      expect(
+        Array.from(list.children).map((el) => el.getAttribute("label")),
+      ).toEqual(["Bob", "Alice"]);
+      renderer.removeRoot(root);
+    });
+
+    it("renders every child of a partially-keyed list (reachable only via a direct commit)", () => {
+      // Template-authoring rejects a mixed keyed/unkeyed children array; a
+      // raw commit does not. Every child must still render -- an explicit
+      // key must not collide with a synthesized positional key for an
+      // unkeyed sibling.
+      const renderer = createVueRenderer();
+      const root = renderer.createRoot("id-mixed", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          {
+            kind: "li",
+            attributes: { label: "keyed" },
+            children: [],
+            slots: {},
+            key: "1",
+          },
+          {
+            kind: "li",
+            attributes: { label: "unkeyed" },
+            children: [],
+            slots: {},
+          },
+        ],
+      });
+      const list = renderer.elementForIdentity("id-mixed")
+        ?.firstElementChild as HTMLElement;
+      expect(
+        Array.from(list.children).map((el) => el.getAttribute("label")),
+      ).toEqual(["keyed", "unkeyed"]);
+      renderer.removeRoot(root);
+    });
+  });
+
   describe("native nested views", () => {
     /** A native "dialog" view exposing a body element as a named anchor a
      * child projection can be mounted into, via provide/inject (not a prop

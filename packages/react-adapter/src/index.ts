@@ -388,8 +388,18 @@ function renderNode(
       applyValueProperty(element, stringifyAttribute(controlledValue));
     };
   }
+  // When every child carries a key, each child's own `key` becomes its React
+  // reconciliation key, so React's own reconciler preserves that child's DOM
+  // element across an insert/remove/reorder. A list that is not fully keyed
+  // (including today's unkeyed lists) reconciles by positional index for
+  // every child instead of mixing real and synthesized keys -- mirroring the
+  // SolidJS adapter's "fully keyed or fully positional" gate and avoiding a
+  // partially-keyed list's explicit key colliding with a synthesized one.
+  const isKeyedChildren =
+    node.children.length > 0 &&
+    node.children.every((child) => child.key !== undefined);
   const children = node.children.map((child, index) =>
-    renderNode(child, views, String(index)),
+    renderNode(child, views, isKeyedChildren ? child.key! : String(index)),
   );
   return createElement(node.kind, props, ...children);
 }

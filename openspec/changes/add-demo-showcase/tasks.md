@@ -1,8 +1,8 @@
 ## 1. Demo package scaffold
 
-- [ ] 1.1 Create `packages/demo/package.json`: `private: true`, no `main`/`exports` (never published), `dependencies` on `@velkren/core`, `@velkren/neutral-composition-fixture`, `@velkren/solid-adapter`, `@velkren/react-adapter`, `@velkren/vue-adapter` (all `workspace:*`/`0.1.0` matching the monorepo's existing workspace-dependency convention), `devDependencies` on `vite` and `typescript`; scripts `"build": "vite build"`, `"dev": "vite dev"`.
+- [ ] 1.1 Create `packages/demo/package.json`: `private: true`, no `main`/`exports` (never published), `dependencies` on `@velkren/core`, `@velkren/neutral-composition-fixture`, `@velkren/solid-adapter`, `@velkren/react-adapter`, `@velkren/vue-adapter`, each pinned to the bare exact version string `"0.1.0"` — matching the exact convention every existing package already uses for its own `@velkren/*` dependencies (npm workspaces does not understand the `workspace:` protocol; that is a pnpm/Yarn-only syntax and would break `npm install` if used here). `devDependencies` on `vite` and `typescript`; scripts `"build": "vite build"`, `"dev": "vite dev"`.
 - [ ] 1.2 Create `packages/demo/tsconfig.json` extending the repo's `tsconfig.base.json`, scoped to `src/**/*.ts` only, `noEmit: true` (Vite handles transpilation; this tsconfig is for editor/type-checking only, not part of the root `tsc -b` project-reference graph).
-- [ ] 1.3 Create `packages/demo/vite.config.ts` — minimal: `root: "."`, default build output to `dist/`.
+- [ ] 1.3 Create `packages/demo/vite.config.ts`: `root: "."`, default build output to `dist/`, and **`base: "./"`** (relative asset paths) — an adversarial review flagged that Vite's default `base: "/"` emits root-absolute asset paths, which 404 once deployed to a GitHub Pages *project* site (`https://<owner>.github.io/velkren/`, not the repo root); relative paths work correctly under any subpath, a custom domain, or local `vite preview`, with no environment-conditional config needed.
 - [ ] 1.4 Create `packages/demo/index.html`: a bare page shell with a `<div id="app">` mount point, a `<script type="module" src="/src/main.ts"></script>`, and inline `<style>` for a simple three-column layout (one column per adapter) plus a shared activity-log panel — no CSS framework.
 
 ## 2. Demo entry point
@@ -14,7 +14,7 @@
 
 ## 3. Deployment workflow
 
-- [ ] 3.1 Create `.github/workflows/deploy-demo.yml`: triggers on `push` to `main`; `permissions: { pages: write, id-token: write }`; one job that runs `npm ci`, `npm run build --workspace=packages/demo` (or `cd packages/demo && npm run build`), then `actions/upload-pages-artifact` pointing at `packages/demo/dist`, then a second job/step using `actions/deploy-pages` to publish it. Use the `github-pages` deployment environment per GitHub's documented Pages-via-Actions pattern.
+- [ ] 3.1 Create `.github/workflows/deploy-demo.yml`: triggers on `push` to `main`; `concurrency: { group: deploy-demo-${{ github.ref }}, cancel-in-progress: true }` matching `ci.yml`'s own pattern; `permissions: { contents: read, pages: write, id-token: write }` (an adversarial review flagged that GitHub's own documented Pages-via-Actions template includes `contents: read` alongside the other two — omitting it risks `actions/checkout` losing its default read access once any `permissions:` block is declared at all); a build job that runs `npm ci`, `npm run build --workspace=packages/demo` (or `cd packages/demo && npm run build`), then `actions/upload-pages-artifact` pointing at `packages/demo/dist`; a separate deploy job (needs the build job, uses the `github-pages` environment) running `actions/deploy-pages` to publish it.
 - [ ] 3.2 Do not modify `.github/workflows/ci.yml` — the demo deploy is a fully separate workflow so a demo-only failure can never block the existing build/test/lint/format gate.
 
 ## 4. Verification and documentation

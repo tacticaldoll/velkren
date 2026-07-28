@@ -50,7 +50,7 @@
 
 - [x] 4.1 Run the full test suite across all three adapter packages and confirm no regression.
 - [x] 4.2 Adversarial review of the implementation (fresh agent, no prior context).
-- [ ] 4.3 Sync delta specs into `openspec/specs/{solid-adapter-prototype,react-adapter,vue-adapter}/spec.md`.
-- [ ] 4.4 Update `BACKLOG.md` with this change's entry and outcome.
+- [x] 4.3 Sync delta specs into `openspec/specs/{solid-adapter-prototype,react-adapter,vue-adapter}/spec.md`.
+- [x] 4.4 Update `BACKLOG.md` with this change's entry and outcome.
 - [ ] 4.5 Archive the change.
 - [ ] 4.6 Open a PR, verify CI is green, and squash-merge to `main`.

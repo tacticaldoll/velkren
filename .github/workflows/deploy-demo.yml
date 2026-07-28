@@ -25,6 +25,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+      # The demo imports other workspace packages (e.g. @velkren/react-adapter)
+      # by their `exports` field, which points at `dist/` -- so those packages
+      # must be built first, or a fresh checkout has nothing to resolve.
+      - run: npm run build
       - run: npm run build --workspace=packages/demo
 
       - uses: actions/upload-pages-artifact@v3

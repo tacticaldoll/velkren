@@ -537,8 +537,8 @@ describe("vue renderer", () => {
         nodeWithSlots("div", ["a"]),
       );
 
-      // Same position, no key change -- Vue reuses the div, but still
-      // re-invokes the ref (a fresh closure every render).
+      // Same position, no key change -- Vue reuses the div, but
+      // onVnodeUpdated still fires on every patch of it.
       renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", ["b"]));
 
       expect(() =>

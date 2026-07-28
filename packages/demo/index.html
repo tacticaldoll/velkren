@@ -21,26 +21,46 @@
         color: #666;
         max-width: 65ch;
       }
+      section.scenario {
+        margin-top: 3rem;
+      }
+      section.scenario > h2 {
+        margin-bottom: 0.25rem;
+      }
+      section.scenario > p {
+        color: #666;
+        max-width: 65ch;
+        margin-top: 0.25rem;
+      }
       .columns {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 1.5rem;
-        margin-top: 2rem;
+        margin-top: 1.5rem;
       }
       .column {
         border: 1px solid #ccc;
         border-radius: 8px;
         padding: 1rem;
       }
-      .column h2 {
+      .column h3 {
         margin-top: 0;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
       }
       .editor {
         border: 1px dashed #999;
         border-radius: 6px;
         padding: 0.5rem;
         margin-block: 0.75rem;
+      }
+      /* Force every <dialog> visible without relying on its `open`
+         attribute/property, which each adapter sets slightly differently. */
+      dialog {
+        display: block;
+        position: static;
+        margin: 0.5rem 0;
+        border: 1px dashed #999;
+        border-radius: 6px;
       }
       .editor input,
       .editor button {
@@ -49,8 +69,12 @@
         margin-top: 0.4rem;
         box-sizing: border-box;
       }
+      .column button {
+        margin-top: 0.4rem;
+        margin-right: 0.4rem;
+      }
       #log {
-        margin-top: 2rem;
+        margin-top: 3rem;
         border-top: 1px solid #ccc;
         padding-top: 1rem;
       }
@@ -66,12 +90,65 @@
   <body>
     <h1>Velkren</h1>
     <p class="lede">
-      The same renderer-neutral composition — two isolated editors, each a Panel
-      with a text field and a button — mounted unchanged on three different
-      adapters. Click a button in any editor below; only that editor's own event
-      appears in the activity log.
+      The same renderer-neutral core, exercising the mechanisms below, running
+      unchanged on three adapters — SolidJS, React, and Vue.
     </p>
-    <div id="app" class="columns"></div>
+
+    <section class="scenario">
+      <h2>Two editors</h2>
+      <p>
+        Two isolated editors, each a Panel with a text field and a button. Click
+        a button in any editor; only that editor's own event appears in the
+        activity log.
+      </p>
+      <div id="two-editor-app" class="columns"></div>
+    </section>
+
+    <section class="scenario">
+      <h2>Native nested views</h2>
+      <p>
+        A registered native "Dialog" view exposes a named anchor. "Mount child"
+        projects an independent, Velkren-managed child into that anchor via
+        <code>mountChild</code> — its own identity and interaction capture,
+        isolated from the dialog's own chrome.
+      </p>
+      <div id="nested-views-app" class="columns"></div>
+    </section>
+
+    <section class="scenario">
+      <h2>Keyed list reordering</h2>
+      <p>
+        Type into any row, then click Shuffle. The row's DOM element (and
+        whatever you typed) follows its key instead of staying at its old
+        position.
+      </p>
+      <div id="keyed-list-app" class="columns"></div>
+    </section>
+
+    <section class="scenario">
+      <h2>Membrane embedding</h2>
+      <p>
+        The three widgets below are plain custom elements, placed as ordinary
+        static markup on this page — no JS-driven mount call runs for them
+        specifically. Each mints its own Velkren runtime the instant it's
+        placed.
+      </p>
+      <div class="columns">
+        <div class="column">
+          <h3>Solid</h3>
+          <velkren-solid-widget label="Solid"></velkren-solid-widget>
+        </div>
+        <div class="column">
+          <h3>React</h3>
+          <velkren-react-widget label="React"></velkren-react-widget>
+        </div>
+        <div class="column">
+          <h3>Vue</h3>
+          <velkren-vue-widget label="Vue"></velkren-vue-widget>
+        </div>
+      </div>
+    </section>
+
     <div id="log">
       <h2>Activity log</h2>
       <ul id="log-list"></ul>

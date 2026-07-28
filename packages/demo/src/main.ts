@@ -1,88 +1,101 @@
-import {
-  createEditorApp,
-  type EditorApp,
-} from "@velkren/neutral-composition-fixture";
 import { createReactRenderer } from "@velkren/react-adapter";
 import { createSolidRenderer } from "@velkren/solid-adapter";
 import { createVueRenderer } from "@velkren/vue-adapter";
+
+import {
+  mountReactNestedViews,
+  mountSolidNestedViews,
+  mountVueNestedViews,
+} from "./scenarios/nested-views.js";
+import { mountKeyedListScenario } from "./scenarios/keyed-list.js";
+import {
+  registerReactMembrane,
+  registerSolidMembrane,
+  registerVueMembrane,
+} from "./scenarios/membrane.js";
+import { mountTwoEditorScenario } from "./scenarios/two-editor.js";
 
 function required(value: HTMLElement | null, id: string): HTMLElement {
   if (value === null) throw new Error(`demo page is missing #${id}`);
   return value;
 }
 
-const appColumn = required(document.getElementById("app"), "app");
-const logList = required(document.getElementById("log-list"), "log-list");
-
-/**
- * Mount one adapter's column: a label, then the SAME renderer-neutral
- * two-editor composition (`createEditorApp`, from `@velkren/neutral-
- * composition-fixture`) every adapter's own test suite already exercises.
- * No test-only affordance is used here -- clicking the rendered <button>
- * reaches the interaction binding through the adapter's own real DOM
- * listener, exactly as it would for any user of a Velkren app.
- */
-function mountDemo(
-  label: string,
-  makeRenderer: (
-    container: HTMLElement,
-  ) => Parameters<typeof createEditorApp>[0],
-): EditorApp {
+function newColumn(section: HTMLElement, label: string): HTMLElement {
   const column = document.createElement("div");
   column.className = "column";
-  const heading = document.createElement("h2");
+  const heading = document.createElement("h3");
   heading.textContent = label;
   column.appendChild(heading);
-  const mount = document.createElement("div");
-  mount.className = "editor";
-  column.appendChild(mount);
-  appColumn.appendChild(column);
-
-  const renderer = makeRenderer(mount);
-  const app = createEditorApp(renderer);
-  const reportFailure = (error: unknown): void => {
-    const message = document.createElement("p");
-    message.textContent = `${label}: failed to mount an editor (${String(error)})`;
-    column.appendChild(message);
-  };
-  app.createEditor("one").catch(reportFailure);
-  app.createEditor("two").catch(reportFailure);
-  return app;
+  section.appendChild(column);
+  return column;
 }
 
-const apps: { label: string; app: EditorApp; seen: number }[] = [
-  {
-    label: "Solid",
-    app: mountDemo("Solid", (container) => createSolidRenderer({ container })),
-    seen: 0,
-  },
-  {
-    label: "React",
-    app: mountDemo("React", (container) => createReactRenderer({ container })),
-    seen: 0,
-  },
-  {
-    label: "Vue",
-    app: mountDemo("Vue", (container) => createVueRenderer({ container })),
-    seen: 0,
-  },
-];
+const logList = required(document.getElementById("log-list"), "log-list");
 
-// The activity log has no push-based hook to subscribe to -- each app's
-// `emissions` array only grows as its own event trace observes a completed
-// `editor.submitted` event, asynchronously after a real click. Polling is
-// the simplest honest way to reflect that on the page.
-function pollEmissions(): void {
-  for (const entry of apps) {
-    const { app, label } = entry;
-    while (entry.seen < app.emissions.length) {
-      const editorId = app.emissions[entry.seen];
-      entry.seen += 1;
-      const item = document.createElement("li");
-      item.textContent = `[${label}] editor "${editorId}" submitted`;
-      logList.prepend(item);
-    }
-  }
-  requestAnimationFrame(pollEmissions);
-}
-requestAnimationFrame(pollEmissions);
+// Section 1: the same renderer-neutral two-editor composition on all three
+// adapters.
+const twoEditorSection = required(
+  document.getElementById("two-editor-app"),
+  "two-editor-app",
+);
+mountTwoEditorScenario(
+  "Solid",
+  (container) => createSolidRenderer({ container }),
+  newColumn(twoEditorSection, "Solid"),
+  logList,
+);
+mountTwoEditorScenario(
+  "React",
+  (container) => createReactRenderer({ container }),
+  newColumn(twoEditorSection, "React"),
+  logList,
+);
+mountTwoEditorScenario(
+  "Vue",
+  (container) => createVueRenderer({ container }),
+  newColumn(twoEditorSection, "Vue"),
+  logList,
+);
+
+// Section 2: native nested views (a registered "Dialog" view hosting a
+// managed child via `mountChild`). Each framework's anchor-registration
+// mechanism differs, so each gets its own mount function.
+const nestedViewsSection = required(
+  document.getElementById("nested-views-app"),
+  "nested-views-app",
+);
+mountSolidNestedViews(newColumn(nestedViewsSection, "Solid"), logList);
+mountReactNestedViews(newColumn(nestedViewsSection, "React"), logList);
+mountVueNestedViews(newColumn(nestedViewsSection, "Vue"), logList);
+
+// Section 3: keyed list reordering. Reconciliation is identical across
+// adapters, so one function covers all three.
+const keyedListSection = required(
+  document.getElementById("keyed-list-app"),
+  "keyed-list-app",
+);
+mountKeyedListScenario(
+  "Solid",
+  (container) => createSolidRenderer({ container }),
+  newColumn(keyedListSection, "Solid"),
+  logList,
+);
+mountKeyedListScenario(
+  "React",
+  (container) => createReactRenderer({ container }),
+  newColumn(keyedListSection, "React"),
+  logList,
+);
+mountKeyedListScenario(
+  "Vue",
+  (container) => createVueRenderer({ container }),
+  newColumn(keyedListSection, "Vue"),
+  logList,
+);
+
+// Section 4: membrane embedding. Registration only -- the three custom
+// elements themselves are placed as plain static markup in index.html, not
+// mounted from here, to prove genuine declarative embedding.
+registerSolidMembrane(logList);
+registerReactMembrane(logList);
+registerVueMembrane(logList);

@@ -231,12 +231,12 @@ Statuses are `candidate`, `ready`, `active`, `done`, or `blocked`. Only an item 
 
 ## add-typed-view-props
 
-- **Status**: candidate
-- **Outcome**: Promote the view props channel from the dual-use `attributes` to a distinct core view node (`{ viewId, props, slots }`) with a typed props contract, so view props are validated and separated from HTML attributes.
+- **Status**: done
+- **Outcome**: Split `RenderNode`/`TemplateNode` into a discriminated union: the existing primitive shape (`kind`, `attributes`, `children`, `slots`) is unchanged, and a new view shape (`{ node: "view", viewId, props }`) carries no `children`/`slots` of its own — a view node is a self-contained leaf by construction, not by adapter convention. Core validates a view node's `viewId` (non-blank) and `props` (strict JSON) the same way and at the same lifecycle point it already validated `kind`/`attributes`, without referencing any adapter or view type. All three adapters' view registries now key on `viewId` and are consulted only for a view node — a primitive node's `kind` never triggers a lookup, even on an accidental string collision with a registered `viewId`. Since a view node has no tag name to fall back to, an unregistered `viewId` is now a thrown error (mirroring `mountChild`'s existing anchor-miss error), not a silent primitive fallback. Each adapter's rebuild-vs-patch decision (Solid's `patchNode`, React's/Vue's per-commit rebuild) also gained an explicit primitive↔view variant-transition case.
 - **Dependencies**: `add-view-registry`
-- **Why next**: Reusing `attributes` as props is untyped and semantically dual-use; a typed view node removes the ambiguity once the mechanism has proven out.
-- **Acceptance**: A view node carries typed props distinct from primitive attributes; adapters consume it; core validates the props contract.
-- **Deferred**: Native nesting.
+- **Why next**: Reusing `attributes` as props was untyped and semantically dual-use; a typed view node removes the ambiguity once the mechanism proved out via `add-native-nested-views`.
+- **Acceptance**: A view node carries typed `props` distinct from a primitive node's `attributes`; all three adapters consume it via `viewId`; core validates the view node's shape and prop JSON-strictness without referencing any adapter or view type.
+- **Deferred**: A per-view props schema (core still only validates "strict JSON," not a view-specific shape, since that would require core to reference adapter-owned registrations). Nesting is unaffected — a view node's leaf-ness was already independent of `mountChild`/anchors.
 
 ## add-vue-adapter
 

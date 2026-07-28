@@ -662,6 +662,214 @@ describe("SolidJS renderer port", () => {
     expect(renders).toBe(2);
   });
 
+  describe("keyed child reconciliation", () => {
+    function listOf(
+      items: readonly { key: string; label: string }[],
+    ): RenderNode {
+      return {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: items.map((item) => ({
+          kind: "li",
+          attributes: { label: item.label },
+          children: [],
+          slots: {},
+          key: item.key,
+        })),
+      };
+    }
+
+    it("preserves each key's DOM element (and live focus) across a reorder", async () => {
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot(
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+          { key: "c", label: "Carol" },
+        ]),
+      );
+      const list = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+      const [elA, elB, elC] = Array.from(list.children) as HTMLElement[];
+      // Give "b"'s element a live property a rebuild would not preserve.
+      (elB as HTMLElement & { marker?: string }).marker = "still-bob";
+
+      renderer.commit(
+        root,
+        "root-1",
+        listOf([
+          { key: "c", label: "Carol" },
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+      await Promise.resolve();
+
+      const reordered = Array.from(list.children) as HTMLElement[];
+      expect(reordered.map((el) => el.getAttribute("label"))).toEqual([
+        "Carol",
+        "Alice",
+        "Bob",
+      ]);
+      expect(reordered[0]).toBe(elC);
+      expect(reordered[1]).toBe(elA);
+      expect(reordered[2]).toBe(elB);
+      expect((reordered[2] as HTMLElement & { marker?: string }).marker).toBe(
+        "still-bob",
+      );
+    });
+
+    it("inserts and removes by key, leaving untouched keys' elements alone", async () => {
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot(
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+      const list = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+      const [elA] = Array.from(list.children) as HTMLElement[];
+
+      renderer.commit(
+        root,
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "c", label: "Carol" },
+        ]),
+      );
+      await Promise.resolve();
+
+      const next = Array.from(list.children) as HTMLElement[];
+      expect(next.map((el) => el.getAttribute("label"))).toEqual([
+        "Alice",
+        "Carol",
+      ]);
+      // "a"'s element is untouched by the removal of "b" and insertion of "c".
+      expect(next[0]).toBe(elA);
+    });
+
+    it("removes every stale element when a children array transitions from unkeyed to keyed", async () => {
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot("root-1", node("ul", {}));
+      renderer.commit(root, "root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "old-1" }),
+          node("li", { label: "old-2" }),
+        ],
+      });
+      await Promise.resolve();
+      const list = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+      expect(list.children.length).toBe(2);
+
+      // The regression an adversarial review caught before implementation: the
+      // prior array here is unkeyed, so a naive "only remove previously-keyed
+      // elements" step would leak both stale <li> elements alongside the two
+      // freshly built keyed ones.
+      renderer.commit(
+        root,
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+      await Promise.resolve();
+
+      const next = Array.from(list.children) as HTMLElement[];
+      expect(next.map((el) => el.getAttribute("label"))).toEqual([
+        "Alice",
+        "Bob",
+      ]);
+      expect(list.children.length).toBe(2);
+    });
+
+    it("reconciles a keyed list nested as a non-root child", async () => {
+      const wrap = (
+        items: readonly { key: string; label: string }[],
+      ): RenderNode => ({
+        kind: "section",
+        attributes: {},
+        children: [listOf(items)],
+        slots: {},
+      });
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot(
+        "root-1",
+        wrap([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+      const section = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+      const list = section.firstElementChild as HTMLElement;
+      const [elA] = Array.from(list.children) as HTMLElement[];
+
+      renderer.commit(
+        root,
+        "root-1",
+        wrap([
+          { key: "b", label: "Bob" },
+          { key: "a", label: "Alice" },
+        ]),
+      );
+      await Promise.resolve();
+
+      const reordered = Array.from(list.children) as HTMLElement[];
+      expect(reordered.map((el) => el.getAttribute("label"))).toEqual([
+        "Bob",
+        "Alice",
+      ]);
+      expect(reordered[1]).toBe(elA);
+    });
+
+    it("leaves an unkeyed list's positional reconciliation unaffected", async () => {
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot("root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Alice" }),
+          node("li", { label: "Bob" }),
+        ],
+      });
+      const list = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+      const [elA, elB] = Array.from(list.children) as HTMLElement[];
+
+      renderer.commit(root, "root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Bob" }),
+          node("li", { label: "Alice" }),
+        ],
+      });
+      await Promise.resolve();
+
+      // Positional reconciliation patches each existing element in place --
+      // it does not move elA/elB to track the new label order.
+      const next = Array.from(list.children) as HTMLElement[];
+      expect(next[0]).toBe(elA);
+      expect(next[1]).toBe(elB);
+      expect(next.map((el) => el.getAttribute("label"))).toEqual([
+        "Bob",
+        "Alice",
+      ]);
+    });
+  });
+
   describe("native nested views", () => {
     /** A native "dialog" view exposing a body element as a named anchor a
      * child projection can be mounted into. */

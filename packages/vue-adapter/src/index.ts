@@ -357,8 +357,12 @@ function buildVNode(
   for (const [name, value] of Object.entries(node.attributes)) {
     props[name] = stringifyAttribute(value);
   }
+  // A child's own `key` (when present) becomes its Vue vnode key, so Vue's
+  // own render/patch reconciler preserves that child's DOM element across an
+  // insert/remove/reorder; falling back to the positional index for an
+  // unkeyed child keeps today's behavior unchanged.
   const children = node.children.map((child, index) =>
-    buildVNode(child, views, String(index)),
+    buildVNode(child, views, child.key ?? String(index)),
   );
   return h(node.kind, props, children);
 }

@@ -388,8 +388,12 @@ function renderNode(
       applyValueProperty(element, stringifyAttribute(controlledValue));
     };
   }
+  // A child's own `key` (when present) becomes its React reconciliation key,
+  // so React's own reconciler preserves that child's DOM element across an
+  // insert/remove/reorder; falling back to the positional index for an
+  // unkeyed child keeps today's behavior unchanged.
   const children = node.children.map((child, index) =>
-    renderNode(child, views, String(index)),
+    renderNode(child, views, child.key ?? String(index)),
   );
   return createElement(node.kind, props, ...children);
 }

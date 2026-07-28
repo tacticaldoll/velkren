@@ -127,6 +127,60 @@ describe("TemplateClass definitions", () => {
     ).toThrow(TemplateDefinitionError);
   });
 
+  it("accepts a fully-keyed sibling list and rejects a blank key", () => {
+    const template = createTemplateClass("editor.panel.keyed", {
+      component: "component/editor.panel",
+      roots: {
+        main: {
+          kind: "ul",
+          children: [
+            { kind: "li", key: "a" },
+            { kind: "li", key: "b" },
+          ],
+        },
+      },
+    });
+    const children = (template.roots.main as { children: TemplateNode[] })
+      .children;
+    expect(children.map((child) => child.key)).toEqual(["a", "b"]);
+
+    expect(() =>
+      createTemplateClass("editor.panel.blank-key", {
+        component: "component/editor.panel",
+        roots: { main: { kind: "li", key: "  " } },
+      }),
+    ).toThrow(TemplateDefinitionError);
+  });
+
+  it("rejects mixed keyed/unkeyed siblings and duplicate sibling keys", () => {
+    expect(() =>
+      createTemplateClass("editor.panel.mixed-keys", {
+        component: "component/editor.panel",
+        roots: {
+          main: {
+            kind: "ul",
+            children: [{ kind: "li", key: "a" }, { kind: "li" }],
+          },
+        },
+      }),
+    ).toThrow(TemplateDefinitionError);
+
+    expect(() =>
+      createTemplateClass("editor.panel.duplicate-keys", {
+        component: "component/editor.panel",
+        roots: {
+          main: {
+            kind: "ul",
+            children: [
+              { kind: "li", key: "a" },
+              { kind: "li", key: "a" },
+            ],
+          },
+        },
+      }),
+    ).toThrow(TemplateDefinitionError);
+  });
+
   it("exposes template APIs without generic kernels", () => {
     expect(typeof publicApi.createTemplateClass).toBe("function");
     expect(typeof publicApi.createTemplateRuntime).toBe("function");

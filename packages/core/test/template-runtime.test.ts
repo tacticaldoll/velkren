@@ -188,6 +188,34 @@ describe("view node resolution", () => {
   });
 });
 
+describe("key resolution", () => {
+  it("carries a primitive node's key through resolvePlan unchanged", async () => {
+    const { components, templates } = harness();
+    templates.register(
+      createTemplateClass("editor.panel.default", {
+        component: "component/editor.panel",
+        roots: { main: { kind: "li", key: "row-1" } },
+      }),
+    );
+    const instance = await panelInstance(components);
+    const plan = templates.resolvePlan(instance);
+    expect(plan.roots.main?.key).toBe("row-1");
+  });
+
+  it("carries a view node's key through resolvePlan unchanged", async () => {
+    const { components, templates } = harness();
+    templates.register(
+      createTemplateClass("editor.panel.default", {
+        component: "component/editor.panel",
+        roots: { main: { node: "view", viewId: "card", key: "row-1" } },
+      }),
+    );
+    const instance = await panelInstance(components);
+    const plan = templates.resolvePlan(instance);
+    expect(plan.roots.main?.key).toBe("row-1");
+  });
+});
+
 describe("slot resolution", () => {
   it("resolves a filled slot to a reference, not a live instance", async () => {
     const { components, templates } = harness();

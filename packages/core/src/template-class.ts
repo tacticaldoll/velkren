@@ -23,6 +23,9 @@ export interface TemplatePrimitiveNode {
   readonly attributes?: JsonObject;
   readonly children?: readonly TemplateNode[];
   readonly slots?: readonly TemplateSlotDeclaration[];
+  /** An optional renderer-neutral identity used to reconcile this node among
+   * its siblings by identity rather than position. See `TemplateNode`. */
+  readonly key?: string;
 }
 
 /** An authored, renderer-neutral view template node: selects a registered
@@ -34,10 +37,20 @@ export interface TemplateViewNode {
   readonly node: "view";
   readonly viewId: string;
   readonly props?: JsonObject;
+  /** An optional renderer-neutral identity used to reconcile this node among
+   * its siblings by identity rather than position. See `TemplateNode`. */
+  readonly key?: string;
 }
 
-/** An authored, renderer-neutral template node: either a primitive node or a
- * view node. */
+/**
+ * An authored, renderer-neutral template node: either a primitive node or a
+ * view node. Either shape MAY carry a `key`: when every sibling in one
+ * `children` array carries a non-blank `key`, an adapter reconciles that
+ * array by key instead of position, preserving each key's rendered element
+ * (and any live state on it, e.g. focus) across an insert, remove, or
+ * reorder. A `children` array where only some siblings carry a `key` is
+ * rejected at template-authoring time — see `freezeNode`.
+ */
 export type TemplateNode = TemplatePrimitiveNode | TemplateViewNode;
 
 /** Narrow a template or render node to its view variant. */
@@ -85,6 +98,7 @@ export interface RenderPrimitiveNode {
   readonly attributes: JsonObject;
   readonly children: readonly RenderNode[];
   readonly slots: Readonly<Record<string, ResolvedSlot>>;
+  readonly key?: string;
 }
 
 /** A normalized, renderer-neutral view node in a render plan: a
@@ -93,6 +107,7 @@ export interface RenderViewNode {
   readonly node: "view";
   readonly viewId: string;
   readonly props: JsonObject;
+  readonly key?: string;
 }
 
 /** A normalized, renderer-neutral node in a render plan: either a primitive
@@ -254,6 +269,14 @@ function freezeNode(node: TemplateNode, slotNames: Set<string>): TemplateNode {
   if (typeof node !== "object" || node === null) {
     throw new TemplateDefinitionError("a template node must be an object");
   }
+  if (
+    node.key !== undefined &&
+    (typeof node.key !== "string" || node.key.trim() === "")
+  ) {
+    throw new TemplateDefinitionError(
+      "a template node's key must not be blank",
+    );
+  }
   if (isViewNode(node)) {
     if (typeof node.viewId !== "string" || node.viewId.trim() === "") {
       throw new TemplateDefinitionError(
@@ -264,6 +287,7 @@ function freezeNode(node: TemplateNode, slotNames: Set<string>): TemplateNode {
       node: "view",
       viewId: node.viewId,
       ...(node.props !== undefined ? { props: node.props } : {}),
+      ...(node.key !== undefined ? { key: node.key } : {}),
     });
   }
   if (typeof node.kind !== "string" || node.kind.trim() === "") {
@@ -284,9 +308,11 @@ function freezeNode(node: TemplateNode, slotNames: Set<string>): TemplateNode {
   const children = (node.children ?? []).map((child) =>
     freezeNode(child, slotNames),
   );
+  validateSiblingKeys(children);
   return Object.freeze({
     kind: node.kind,
     ...(node.attributes !== undefined ? { attributes: node.attributes } : {}),
+    ...(node.key !== undefined ? { key: node.key } : {}),
     children: Object.freeze(children),
     slots: Object.freeze(
       slots.map((slot) =>
@@ -297,4 +323,27 @@ function freezeNode(node: TemplateNode, slotNames: Set<string>): TemplateNode {
       ),
     ),
   });
+}
+
+/** Within one `children` array, either every sibling carries a `key` or none
+ * do, and no two siblings share a `key`. Validated once at template-authoring
+ * time; a `RenderNode` a caller commits directly is not re-checked here — see
+ * `add-keyed-node-reconcile`'s design for why that boundary stays unchecked. */
+function validateSiblingKeys(children: readonly TemplateNode[]): void {
+  const keyedCount = children.filter((child) => child.key !== undefined).length;
+  if (keyedCount !== 0 && keyedCount !== children.length) {
+    throw new TemplateDefinitionError(
+      "children must either all carry a key or none do",
+    );
+  }
+  const seen = new Set<string>();
+  for (const child of children) {
+    if (child.key === undefined) continue;
+    if (seen.has(child.key)) {
+      throw new TemplateDefinitionError(
+        `duplicate sibling key ${JSON.stringify(child.key)}`,
+      );
+    }
+    seen.add(child.key);
+  }
 }

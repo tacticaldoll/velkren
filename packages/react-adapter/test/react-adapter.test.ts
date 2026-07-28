@@ -546,6 +546,97 @@ describe("React renderer port", () => {
     await bound.release();
   });
 
+  describe("keyed child reconciliation", () => {
+    function listOf(
+      items: readonly { key: string; label: string }[],
+    ): RenderNode {
+      return {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: items.map((item) => ({
+          kind: "li",
+          attributes: { label: item.label },
+          children: [],
+          slots: {},
+          key: item.key,
+        })),
+      };
+    }
+
+    it("preserves each key's DOM element identity across a reorder", () => {
+      const renderer = createReactRenderer();
+      const root = renderer.createRoot(
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+          { key: "c", label: "Carol" },
+        ]),
+      );
+      const list = renderer.elementForIdentity("root-1")
+        ?.firstElementChild as HTMLElement;
+      const [elA, elB, elC] = Array.from(list.children) as HTMLElement[];
+      (elB as HTMLElement & { marker?: string }).marker = "still-bob";
+
+      renderer.commit(
+        root,
+        "root-1",
+        listOf([
+          { key: "c", label: "Carol" },
+          { key: "a", label: "Alice" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+
+      const reordered = Array.from(list.children) as HTMLElement[];
+      expect(reordered.map((el) => el.getAttribute("label"))).toEqual([
+        "Carol",
+        "Alice",
+        "Bob",
+      ]);
+      expect(reordered[0]).toBe(elC);
+      expect(reordered[1]).toBe(elA);
+      expect(reordered[2]).toBe(elB);
+      expect((reordered[2] as HTMLElement & { marker?: string }).marker).toBe(
+        "still-bob",
+      );
+    });
+
+    it("leaves an unkeyed list's reconciliation unaffected", () => {
+      const renderer = createReactRenderer();
+      const root = renderer.createRoot("root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Alice" }),
+          node("li", { label: "Bob" }),
+        ],
+      });
+      const list = renderer.elementForIdentity("root-1")
+        ?.firstElementChild as HTMLElement;
+      const before = Array.from(list.children).map((el) =>
+        el.getAttribute("label"),
+      );
+      expect(before).toEqual(["Alice", "Bob"]);
+
+      renderer.commit(root, "root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          node("li", { label: "Bob" }),
+          node("li", { label: "Alice" }),
+        ],
+      });
+      const after = Array.from(list.children).map((el) =>
+        el.getAttribute("label"),
+      );
+      expect(after).toEqual(["Bob", "Alice"]);
+    });
+  });
+
   describe("native nested views", () => {
     /** A native "dialog" view exposing a body element as a named anchor a
      * child projection can be mounted into, via RegisterAnchorContext (not

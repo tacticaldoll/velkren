@@ -7,6 +7,7 @@ import {
   type JsonObject,
   type JsonValue,
   type RenderNode,
+  type RenderPrimitiveNode,
   type RendererPort,
 } from "@velkren/core";
 import {
@@ -169,6 +170,13 @@ export function createSolidRenderer(
       // inside it. Identity and the interaction listener sit on the container.
       const rootContainer = document.createElement("div");
       const anchors = new Map<string, HTMLElement>();
+      // Which slot name (if any) a given element is currently registered
+      // under via the single-slot-anchor mechanism, so a rename or removal
+      // of that slot on a later patch-in-place commit (same element, no
+      // rebuild) can clear the old `anchors` entry instead of leaving a
+      // stale-but-still-attached name a later `mountChild` could wrongly
+      // resolve.
+      const slotAnchorNames = new WeakMap<HTMLElement, string>();
       const [current, setNode] = createSignal<RenderNode>(node);
       // The last node this effect rendered, and the mounted content element,
       // carried across effect runs so a commit can reconcile in place.
@@ -181,7 +189,7 @@ export function createSolidRenderer(
         rootContainer.setAttribute(PROJECTION_IDENTITY_ATTRIBUTE, identity);
         if (content === undefined || previous === undefined) {
           // First run: build the content once and mount it.
-          content = renderNodeElement(next, views, anchors);
+          content = renderNodeElement(next, views, anchors, slotAnchorNames);
           rootContainer.replaceChildren(content);
         } else {
           // Commit: reconcile the existing element tree in place so unchanged
@@ -192,7 +200,14 @@ export function createSolidRenderer(
           // commit's own render/patch may replace them, so a live child
           // mounted at one can be reconciled afterward instead of orphaned.
           const oldAnchors = new Map(anchors);
-          const patched = patchNode(content, previous, next, views, anchors);
+          const patched = patchNode(
+            content,
+            previous,
+            next,
+            views,
+            anchors,
+            slotAnchorNames,
+          );
           if (patched !== content) {
             rootContainer.replaceChild(patched, content);
             content = patched;
@@ -389,6 +404,7 @@ function renderNodeElement(
   node: RenderNode,
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
 ): HTMLElement {
   if (isViewNode(node)) {
     const view = views[node.viewId];
@@ -406,9 +422,49 @@ function renderNodeElement(
   const element = document.createElement(node.kind);
   applyAttributes(element, node.attributes);
   element.replaceChildren(
-    ...node.children.map((child) => renderNodeElement(child, views, anchors)),
+    ...node.children.map((child) =>
+      renderNodeElement(child, views, anchors, slotAnchorNames),
+    ),
   );
+  registerSlotAnchor(node, element, anchors, slotAnchorNames);
   return element;
+}
+
+/**
+ * A primitive node whose resolved `.slots` has exactly one entry becomes its
+ * own `mountChild` anchor, registered under that slot's name in the same
+ * `anchors` map a view's `registerAnchor` writes to -- no separate
+ * placeholder DOM, no new coordinator. A node with zero or two-or-more
+ * resolved slots registers nothing. `slotAnchorNames` records which name (if
+ * any) `element` is currently registered under via this mechanism, so a
+ * later call for the same element that finds a *different* name (or none)
+ * removes the stale entry first -- otherwise a slot renamed or dropped on a
+ * patch-in-place commit (same element, no rebuild) would leave a name behind
+ * that no longer reflects the node's current slot, but that `mountChild`
+ * would still happily resolve.
+ */
+function registerSlotAnchor(
+  node: RenderPrimitiveNode,
+  element: HTMLElement,
+  anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
+): void {
+  const slotNames = Object.keys(node.slots);
+  const soleName = slotNames.length === 1 ? slotNames[0] : undefined;
+  const previousName = slotAnchorNames.get(element);
+  if (
+    previousName !== undefined &&
+    previousName !== soleName &&
+    anchors.get(previousName) === element
+  ) {
+    anchors.delete(previousName);
+  }
+  if (soleName === undefined) {
+    slotAnchorNames.delete(element);
+    return;
+  }
+  anchors.set(soleName, element);
+  slotAnchorNames.set(element, soleName);
 }
 
 /**
@@ -425,15 +481,27 @@ function patchNode(
   newNode: RenderNode,
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
 ): HTMLElement {
   if (isViewNode(oldNode) || isViewNode(newNode)) {
-    return renderNodeElement(newNode, views, anchors);
+    return renderNodeElement(newNode, views, anchors, slotAnchorNames);
   }
   if (oldNode.kind !== newNode.kind) {
-    return renderNodeElement(newNode, views, anchors);
+    return renderNodeElement(newNode, views, anchors, slotAnchorNames);
   }
   patchAttributes(el, oldNode.attributes, newNode.attributes);
-  patchChildren(el, oldNode.children, newNode.children, views, anchors);
+  patchChildren(
+    el,
+    oldNode.children,
+    newNode.children,
+    views,
+    anchors,
+    slotAnchorNames,
+  );
+  // A node's slot-fill status can change between commits while its `kind`
+  // stays the same, taking this patch-in-place path rather than a rebuild --
+  // so registration must happen here too, not only in `renderNodeElement`.
+  registerSlotAnchor(newNode, el, anchors, slotAnchorNames);
   return el;
 }
 
@@ -460,9 +528,17 @@ function patchChildren(
   newChildren: readonly RenderNode[],
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
 ): void {
   if (isKeyedList(oldChildren) || isKeyedList(newChildren)) {
-    patchKeyedChildren(parent, oldChildren, newChildren, views, anchors);
+    patchKeyedChildren(
+      parent,
+      oldChildren,
+      newChildren,
+      views,
+      anchors,
+      slotAnchorNames,
+    );
     return;
   }
   const common = Math.min(oldChildren.length, newChildren.length);
@@ -474,11 +550,14 @@ function patchChildren(
       newChildren[i]!,
       views,
       anchors,
+      slotAnchorNames,
     );
     if (patched !== existing) parent.replaceChild(patched, existing);
   }
   for (let i = common; i < newChildren.length; i++) {
-    parent.appendChild(renderNodeElement(newChildren[i]!, views, anchors));
+    parent.appendChild(
+      renderNodeElement(newChildren[i]!, views, anchors, slotAnchorNames),
+    );
   }
   while (parent.children.length > newChildren.length) {
     parent.removeChild(parent.lastElementChild!);
@@ -505,6 +584,7 @@ function patchKeyedChildren(
   newChildren: readonly RenderNode[],
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
 ): void {
   const oldByKey = new Map<
     string,
@@ -534,8 +614,15 @@ function patchKeyedChildren(
     if (newChild.key !== undefined) claimed.add(newChild.key);
     const element =
       match === undefined
-        ? renderNodeElement(newChild, views, anchors)
-        : patchNode(match.element, match.node, newChild, views, anchors);
+        ? renderNodeElement(newChild, views, anchors, slotAnchorNames)
+        : patchNode(
+            match.element,
+            match.node,
+            newChild,
+            views,
+            anchors,
+            slotAnchorNames,
+          );
     reused.add(element);
     return element;
   });

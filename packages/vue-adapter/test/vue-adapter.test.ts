@@ -471,4 +471,103 @@ describe("vue renderer", () => {
       renderer.removeRoot(parentRoot);
     });
   });
+
+  describe("single-slot anchor", () => {
+    function nodeWithSlots(
+      kind: string,
+      slotNames: readonly string[],
+      attributes: JsonObject = {},
+    ): RenderNode {
+      const slots: Record<string, { kind: "content"; content: null }> = {};
+      for (const name of slotNames) {
+        slots[name] = { kind: "content", content: null };
+      }
+      return { kind, attributes, children: [], slots };
+    }
+
+    it("a primitive node with exactly one resolved slot becomes its own anchor", () => {
+      const renderer = createVueRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["body"]),
+      );
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const div = renderer.elementForIdentity("parent-1")?.querySelector("div");
+      expect(div?.querySelector("section")?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+      renderer.removeRoot(childRoot);
+      renderer.removeRoot(parentRoot);
+    });
+
+    it("a node with zero or multiple resolved slots registers no anchor", () => {
+      const renderer = createVueRenderer();
+      const zeroSlot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", []),
+      );
+      expect(() =>
+        renderer.mountChild(zeroSlot, "body", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+
+      const multiSlot = renderer.createRoot(
+        "parent-2",
+        nodeWithSlots("div", ["a", "b"]),
+      );
+      expect(() =>
+        renderer.mountChild(multiSlot, "a", "child-2", node("section")),
+      ).toThrow(/no anchor named/);
+      expect(() =>
+        renderer.mountChild(multiSlot, "b", "child-3", node("section")),
+      ).toThrow(/no anchor named/);
+      renderer.removeRoot(zeroSlot);
+      renderer.removeRoot(multiSlot);
+    });
+
+    it("a renamed sole slot on a re-render un-registers the old name", () => {
+      const renderer = createVueRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      // Same position, no key change -- Vue reuses the div, but
+      // onVnodeUpdated still fires on every patch of it.
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", ["b"]));
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "b",
+        "child-2",
+        node("section"),
+      );
+      expect(renderer.readIdentity(childRoot)).toBe("child-2");
+      renderer.removeRoot(childRoot);
+      renderer.removeRoot(parentRoot);
+    });
+
+    it("a removed sole slot on a re-render un-registers the anchor", () => {
+      const renderer = createVueRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", []));
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+      renderer.removeRoot(parentRoot);
+    });
+  });
 });

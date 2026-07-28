@@ -16,6 +16,7 @@ import {
   type JsonObject,
   type JsonValue,
   type RenderNode,
+  type RenderPrimitiveNode,
   type RendererPort,
 } from "@velkren/core";
 import {
@@ -99,6 +100,11 @@ interface VueAdapterRoot {
   /** Elements a view rendered on this root registered as named anchors, for
    * a later `mountChild` call to mount into. */
   readonly anchors: Map<string, HTMLElement>;
+  /** Which slot name (if any) a given element is currently registered under
+   * via the single-slot-anchor mechanism, carried across commits so a
+   * rename/removal on a patch-in-place commit can clean up the stale entry
+   * in `anchors`. */
+  readonly slotAnchorNames: WeakMap<HTMLElement, string>;
   /** Which child root (if any) is currently mounted at each of this root's
    * anchor names, so a later commit that replaces an anchor's element can
    * reconcile a live child instead of silently orphaning it. */
@@ -124,12 +130,17 @@ const VelkrenTree = defineComponent({
       type: Object as PropType<Map<string, HTMLElement>>,
       required: true,
     },
+    slotAnchorNames: {
+      type: Object as PropType<WeakMap<HTMLElement, string>>,
+      required: true,
+    },
   },
   setup(props) {
     provide(REGISTER_ANCHOR_KEY, (name: string, element: HTMLElement) => {
       props.anchors.set(name, element);
     });
-    return () => buildVNode(props.node, props.views);
+    return () =>
+      buildVNode(props.node, props.views, props.anchors, props.slotAnchorNames);
   },
 });
 
@@ -214,9 +225,19 @@ export function createVueRenderer(
     const rootContainer = document.createElement("div");
     parentContainer.appendChild(rootContainer);
     const anchors = new Map<string, HTMLElement>();
+    // Which slot name (if any) a given element is currently registered
+    // under via the single-slot-anchor mechanism, so a rename or removal of
+    // that slot on a later patch-in-place commit (same element, no rebuild)
+    // can clear the old `anchors` entry instead of leaving a
+    // stale-but-still-attached name a later `mountChild` could wrongly
+    // resolve.
+    const slotAnchorNames = new WeakMap<HTMLElement, string>();
     // Vue's `render` mounts synchronously, so the port's read-after-return
     // contract holds without an explicit flush.
-    render(h(VelkrenTree, { node, views, anchors }), rootContainer);
+    render(
+      h(VelkrenTree, { node, views, anchors, slotAnchorNames }),
+      rootContainer,
+    );
     // Identity is stamped imperatively on the container (never a vnode prop):
     // a re-render alone would not restore an out-of-band-removed attribute.
     stampIdentity(rootContainer, identity);
@@ -227,6 +248,7 @@ export function createVueRenderer(
       listeners: new Map(),
       disposed: false,
       anchors,
+      slotAnchorNames,
       childrenByAnchor: new Map(),
     };
   }
@@ -286,6 +308,7 @@ export function createVueRenderer(
           node,
           views,
           anchors: adapterRoot.anchors,
+          slotAnchorNames: adapterRoot.slotAnchorNames,
         }),
         adapterRoot.container,
       );
@@ -418,6 +441,8 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 function buildVNode(
   node: RenderNode,
   views: VueViewRegistry,
+  anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
   key?: string,
 ): VNode {
   if (isViewNode(node)) {
@@ -434,6 +459,25 @@ function buildVNode(
   for (const [name, value] of Object.entries(node.attributes)) {
     props[name] = stringifyAttribute(value);
   }
+  // A primitive node whose resolved `.slots` has exactly one entry becomes
+  // its own `mountChild` anchor, registered under that slot's name in the
+  // same `anchors` map a view's `registerAnchor` writes to -- no separate
+  // placeholder DOM, no new coordinator. A node with zero or two-or-more
+  // resolved slots registers nothing. Registration runs on Vue's
+  // `onVnodeMounted`/`onVnodeUpdated` vnode hooks rather than `ref`: unlike
+  // React, Vue does not reliably re-invoke a `ref` callback on a patch that
+  // reuses the same DOM element, so a `ref`-based cleanup would miss a
+  // renamed or removed slot on a patch-in-place commit. The vnode hooks fire
+  // on every mount and every patch of this position regardless, and are
+  // attached unconditionally (not only when this render has a sole slot) so
+  // a node that HAD one and just lost it still gets its stale entry cleaned.
+  const registerThisNodesSlotAnchor = (vnode: VNode): void => {
+    if (vnode.el instanceof HTMLElement) {
+      registerSlotAnchor(node, vnode.el, anchors, slotAnchorNames);
+    }
+  };
+  props.onVnodeMounted = registerThisNodesSlotAnchor;
+  props.onVnodeUpdated = registerThisNodesSlotAnchor;
   // When every child carries a key, each child's own `key` becomes its Vue
   // vnode key, so Vue's own render/patch reconciler preserves that child's
   // DOM element across an insert/remove/reorder. A list that is not fully
@@ -445,9 +489,52 @@ function buildVNode(
     node.children.length > 0 &&
     node.children.every((child) => child.key !== undefined);
   const children = node.children.map((child, index) =>
-    buildVNode(child, views, isKeyedChildren ? child.key! : String(index)),
+    buildVNode(
+      child,
+      views,
+      anchors,
+      slotAnchorNames,
+      isKeyedChildren ? child.key! : String(index),
+    ),
   );
   return h(node.kind, props, children);
+}
+
+/**
+ * A primitive node whose resolved `.slots` has exactly one entry becomes its
+ * own `mountChild` anchor, registered under that slot's name in the same
+ * `anchors` map a view's `registerAnchor` writes to. A node with zero or
+ * two-or-more resolved slots registers nothing. `slotAnchorNames` records
+ * which name (if any) `element` is currently registered under via this
+ * mechanism, so a later call for the same element that finds a *different*
+ * name (or none) removes the stale entry first -- otherwise a slot renamed
+ * or dropped on a patch-in-place commit (same element, no rebuild) would
+ * leave a name behind that no longer reflects the node's current slot, but
+ * that `mountChild` would still happily resolve. Mirrors the Solid adapter's
+ * helper of the same name and shape.
+ */
+function registerSlotAnchor(
+  node: RenderPrimitiveNode,
+  element: HTMLElement,
+  anchors: Map<string, HTMLElement>,
+  slotAnchorNames: WeakMap<HTMLElement, string>,
+): void {
+  const slotNames = Object.keys(node.slots);
+  const soleName = slotNames.length === 1 ? slotNames[0] : undefined;
+  const previousName = slotAnchorNames.get(element);
+  if (
+    previousName !== undefined &&
+    previousName !== soleName &&
+    anchors.get(previousName) === element
+  ) {
+    anchors.delete(previousName);
+  }
+  if (soleName === undefined) {
+    slotAnchorNames.delete(element);
+    return;
+  }
+  anchors.set(soleName, element);
+  slotAnchorNames.set(element, soleName);
 }
 
 function stampIdentity(container: HTMLElement, identity: string): void {

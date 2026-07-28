@@ -442,10 +442,19 @@ function patchKeyedChildren(
     }
   });
 
+  // A key already claimed by an earlier new child (a duplicate key within
+  // `newChildren`, only reachable through the unchecked `commit()` boundary)
+  // must not be matched again -- reusing the same old element for two new
+  // positions would make one DOM node occupy two slots in `nextElements`,
+  // silently dropping a row rather than merely leaving an unspecified winner.
+  const claimed = new Set<string>();
   const reused = new Set<HTMLElement>();
   const nextElements = newChildren.map((newChild) => {
     const match =
-      newChild.key !== undefined ? oldByKey.get(newChild.key) : undefined;
+      newChild.key !== undefined && !claimed.has(newChild.key)
+        ? oldByKey.get(newChild.key)
+        : undefined;
+    if (newChild.key !== undefined) claimed.add(newChild.key);
     const element =
       match === undefined
         ? renderNodeElement(newChild, views, anchors)

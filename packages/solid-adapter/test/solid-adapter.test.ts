@@ -792,6 +792,35 @@ describe("SolidJS renderer port", () => {
       expect(list.children.length).toBe(2);
     });
 
+    it("does not drop a row when two new children share the same key", async () => {
+      const renderer = createSolidRenderer();
+      const root = renderer.createRoot(
+        "root-1",
+        listOf([{ key: "a", label: "Alice" }]),
+      );
+      const list = renderer.container.firstElementChild
+        ?.firstElementChild as HTMLElement;
+
+      // A duplicate key within the NEW array is only reachable through the
+      // unchecked `commit()` boundary (template-authoring rejects it). An
+      // adversarial review caught that matching both duplicates to the same
+      // old element made one DOM node occupy two `nextElements` slots,
+      // silently dropping a row rather than merely leaving an unspecified
+      // "which duplicate wins" outcome.
+      renderer.commit(
+        root,
+        "root-1",
+        listOf([
+          { key: "a", label: "Alice" },
+          { key: "a", label: "Alice-2" },
+          { key: "b", label: "Bob" },
+        ]),
+      );
+      await Promise.resolve();
+
+      expect(list.children.length).toBe(3);
+    });
+
     it("reconciles a keyed list nested as a non-root child", async () => {
       const wrap = (
         items: readonly { key: string; label: string }[],

@@ -635,6 +635,39 @@ describe("React renderer port", () => {
       );
       expect(after).toEqual(["Bob", "Alice"]);
     });
+
+    it("renders every child of a partially-keyed list (reachable only via a direct commit)", () => {
+      // Template-authoring rejects a mixed keyed/unkeyed children array; a
+      // raw commit does not. Every child must still render -- an explicit
+      // key must not collide with a synthesized positional key for an
+      // unkeyed sibling.
+      const renderer = createReactRenderer();
+      renderer.createRoot("root-1", {
+        kind: "ul",
+        attributes: {},
+        slots: {},
+        children: [
+          {
+            kind: "li",
+            attributes: { label: "keyed" },
+            children: [],
+            slots: {},
+            key: "1",
+          },
+          {
+            kind: "li",
+            attributes: { label: "unkeyed" },
+            children: [],
+            slots: {},
+          },
+        ],
+      });
+      const list = renderer.elementForIdentity("root-1")
+        ?.firstElementChild as HTMLElement;
+      expect(
+        Array.from(list.children).map((el) => el.getAttribute("label")),
+      ).toEqual(["keyed", "unkeyed"]);
+    });
   });
 
   describe("native nested views", () => {

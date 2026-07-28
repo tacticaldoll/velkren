@@ -357,12 +357,18 @@ function buildVNode(
   for (const [name, value] of Object.entries(node.attributes)) {
     props[name] = stringifyAttribute(value);
   }
-  // A child's own `key` (when present) becomes its Vue vnode key, so Vue's
-  // own render/patch reconciler preserves that child's DOM element across an
-  // insert/remove/reorder; falling back to the positional index for an
-  // unkeyed child keeps today's behavior unchanged.
+  // When every child carries a key, each child's own `key` becomes its Vue
+  // vnode key, so Vue's own render/patch reconciler preserves that child's
+  // DOM element across an insert/remove/reorder. A list that is not fully
+  // keyed (including today's unkeyed lists) reconciles by positional index
+  // for every child instead of mixing real and synthesized keys -- mirroring
+  // the SolidJS adapter's "fully keyed or fully positional" gate and avoiding
+  // a partially-keyed list's explicit key colliding with a synthesized one.
+  const isKeyedChildren =
+    node.children.length > 0 &&
+    node.children.every((child) => child.key !== undefined);
   const children = node.children.map((child, index) =>
-    buildVNode(child, views, child.key ?? String(index)),
+    buildVNode(child, views, isKeyedChildren ? child.key! : String(index)),
   );
   return h(node.kind, props, children);
 }

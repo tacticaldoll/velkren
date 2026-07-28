@@ -2,7 +2,7 @@
 
 ### Requirement: Keyed child reconciliation via Vue's own reconciler
 
-When building a node's children, the adapter SHALL use a child's own `key` (when present) as that child's Vue vnode key, falling back to its positional index only when the child carries no `key`. The adapter MUST NOT implement its own child-reconciliation algorithm for this: passing the real key into the vnode tree is sufficient for Vue's existing `render`/patch reconciler to preserve a keyed child's DOM element across an insert, remove, or reorder on a subsequent commit.
+When a node's children array is fully keyed (every child carries a non-blank `key`), the adapter SHALL use each child's own `key` as its Vue vnode key. When the array is not fully keyed — including today's fully-unkeyed lists, and a mixed list only reachable by committing a `RenderNode` directly rather than through template authoring — every child SHALL use its positional index instead, never mixing a real key with a synthesized one. The adapter MUST NOT implement its own child-reconciliation algorithm for this: passing the real key into the vnode tree when the list is fully keyed is sufficient for Vue's existing `render`/patch reconciler to preserve a keyed child's DOM element across an insert, remove, or reorder on a subsequent commit.
 
 #### Scenario: A keyed list reorders without losing element identity
 
@@ -13,3 +13,8 @@ When building a node's children, the adapter SHALL use a child's own `key` (when
 
 - **WHEN** a children array with no `key` on any child is committed again in a different order
 - **THEN** reconciliation proceeds by positional index exactly as before this requirement
+
+#### Scenario: A partially-keyed list still renders every child
+
+- **WHEN** a children array where only some children carry a `key` is committed (reachable only by committing a `RenderNode` directly, since template authoring rejects this shape)
+- **THEN** every child still renders, reconciled by positional index rather than mixing a real key with a synthesized one

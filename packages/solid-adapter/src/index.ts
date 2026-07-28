@@ -1,5 +1,6 @@
 import { createRenderEffect, createRoot, createSignal } from "solid-js";
 import {
+  isViewNode,
   PROJECTION_IDENTITY_ATTRIBUTE,
   type AdapterRoot,
   type InteractionRegistration,
@@ -45,8 +46,8 @@ export interface SolidViewContext {
 }
 
 /**
- * A registered Solid view: a function that receives a node's neutral
- * `attributes` (a `JsonObject`) as its props and a `SolidViewContext`, and
+ * A registered Solid view: a function that receives a view node's neutral
+ * `props` (a `JsonObject`) as its props and a `SolidViewContext`, and
  * returns a DOM element. Called within the root's reactive owner so its
  * effects dispose on unmount. SolidJS and this view type live only in this
  * package; `@velkren/core` never sees them.
@@ -56,14 +57,14 @@ export type SolidView = (
   context: SolidViewContext,
 ) => HTMLElement;
 
-/** An adapter-local registry resolving a node `kind` to a native Solid view. */
+/** An adapter-local registry resolving a view node's `viewId` to a native Solid view. */
 export type SolidViewRegistry = Record<string, SolidView>;
 
 /** Optional configuration for the SolidJS renderer. */
 export interface SolidRendererOptions {
   /** The shared host under which each root's per-root container is mounted. */
   readonly container?: HTMLElement;
-  /** A registry resolving a node `kind` to a native Solid view. */
+  /** A registry resolving a view node's `viewId` to a native Solid view. */
   readonly views?: SolidViewRegistry;
 }
 
@@ -301,20 +302,25 @@ export function snapshotNativeEvent(event: Event): JsonObject {
 
 /**
  * Build a node's content element from scratch. The registry-aware builder used
- * for the initial mount and whenever a node must be (re)created on commit: on a
- * `views[kind]` hit it renders the registered Solid view as a self-contained
- * leaf (raw `node.attributes` as props; the node's Velkren-managed children are
- * NOT projected into it); on a miss it builds the primitive element with its
- * attributes and children recursively.
+ * for the initial mount and whenever a node must be (re)created on commit: a
+ * view node is resolved by `viewId` and rendered as a self-contained leaf (raw
+ * `node.props` as props; a view node has no children of its own to project);
+ * a primitive node builds the DOM element with its attributes and children
+ * recursively, never consulting the registry.
  */
 function renderNodeElement(
   node: RenderNode,
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
 ): HTMLElement {
-  const view = views[node.kind];
-  if (view !== undefined) {
-    return view(node.attributes, {
+  if (isViewNode(node)) {
+    const view = views[node.viewId];
+    if (view === undefined) {
+      throw new Error(
+        `Velkren: no view registered for viewId ${JSON.stringify(node.viewId)}`,
+      );
+    }
+    return view(node.props, {
       registerAnchor(name, element) {
         anchors.set(name, element);
       },
@@ -331,8 +337,9 @@ function renderNodeElement(
 /**
  * Reconcile `el` (built from `oldNode`) toward `newNode` in place, returning the
  * element to occupy this position. A primitive element whose `kind` is unchanged
- * keeps its DOM identity and is patched in place; a kind change or a registered
- * view (an opaque leaf fed plain-props attributes) is rebuilt via
+ * keeps its DOM identity and is patched in place; a `kind` change, a variant
+ * change (primitive<->view), or a view node on either side (an opaque leaf fed
+ * plain `props`, always re-instantiated on commit) is rebuilt via
  * `renderNodeElement`, and the caller swaps it into its parent.
  */
 function patchNode(
@@ -342,9 +349,10 @@ function patchNode(
   views: SolidViewRegistry,
   anchors: Map<string, HTMLElement>,
 ): HTMLElement {
-  const oldIsView = views[oldNode.kind] !== undefined;
-  const newIsView = views[newNode.kind] !== undefined;
-  if (oldNode.kind !== newNode.kind || oldIsView || newIsView) {
+  if (isViewNode(oldNode) || isViewNode(newNode)) {
+    return renderNodeElement(newNode, views, anchors);
+  }
+  if (oldNode.kind !== newNode.kind) {
     return renderNodeElement(newNode, views, anchors);
   }
   patchAttributes(el, oldNode.attributes, newNode.attributes);

@@ -6,6 +6,7 @@ import {
   createTemplateClass,
   DuplicateTemplateBindingError,
   DuplicateTemplateRuntimeError,
+  isViewNode,
   RenderPlanError,
   TemplateResolutionError,
   type TemplateDefinition,
@@ -145,6 +146,48 @@ describe("deterministic resolution and render plans", () => {
   });
 });
 
+describe("view node resolution", () => {
+  it("resolves a view node's props as strict JSON, with no children or slots", async () => {
+    const { components, templates } = harness();
+    templates.register(
+      createTemplateClass("editor.panel.default", {
+        component: "component/editor.panel",
+        roots: {
+          main: { node: "view", viewId: "dialog", props: { open: true } },
+        },
+      }),
+    );
+    const instance = await panelInstance(components);
+    const plan = templates.resolvePlan(instance);
+    const main = plan.roots.main;
+    expect(main).toEqual({
+      node: "view",
+      viewId: "dialog",
+      props: { open: true },
+    });
+    expect(main).not.toHaveProperty("children");
+    expect(main).not.toHaveProperty("slots");
+  });
+
+  it("rejects non-JSON props at resolution", async () => {
+    const { components, templates } = harness();
+    templates.register(
+      createTemplateClass("editor.panel.default", {
+        component: "component/editor.panel",
+        roots: {
+          main: {
+            node: "view",
+            viewId: "dialog",
+            props: { bad: (() => 1) as never },
+          },
+        },
+      }),
+    );
+    const instance = await panelInstance(components);
+    expect(() => templates.resolvePlan(instance)).toThrow(RenderPlanError);
+  });
+});
+
 describe("slot resolution", () => {
   it("resolves a filled slot to a reference, not a live instance", async () => {
     const { components, templates } = harness();
@@ -157,7 +200,11 @@ describe("slot resolution", () => {
     );
     const reference = components.reference(child);
     const plan = templates.resolvePlan(instance, { body: reference });
-    const slot = plan.roots.main?.slots.body;
+    const main = plan.roots.main;
+    if (main === undefined || isViewNode(main)) {
+      throw new Error("expected a primitive root with a resolved slot");
+    }
+    const slot = main.slots.body;
     expect(slot?.kind).toBe("reference");
     expect(slot?.kind === "reference" && slot.reference).toBe(reference);
     expect(slot?.kind === "reference" && slot.reference.deref()).toBe(child);

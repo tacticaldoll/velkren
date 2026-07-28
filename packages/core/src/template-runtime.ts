@@ -14,6 +14,7 @@ import {
   DuplicateTemplateBindingError,
   DuplicateTemplateRuntimeError,
   isTemplateClass,
+  isViewNode,
   RenderPlanError,
   templateClassKind,
   templateClassOf,
@@ -165,6 +166,17 @@ class DefaultTemplateRuntime implements TemplateRuntime {
     fills: ReadonlyMap<string, TemplateSlotFill>,
     consumed: Set<string>,
   ): RenderNode {
+    if (isViewNode(node)) {
+      let props: JsonObject;
+      try {
+        props = createJsonSnapshot<JsonObject>(node.props ?? {}).value;
+      } catch (cause) {
+        throw new RenderPlanError(
+          `view node ${JSON.stringify(node.viewId)} has non-JSON props: ${String(cause)}`,
+        );
+      }
+      return Object.freeze({ node: "view", viewId: node.viewId, props });
+    }
     let attributes: JsonObject;
     try {
       attributes = createJsonSnapshot<JsonObject>(node.attributes ?? {}).value;

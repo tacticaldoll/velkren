@@ -5,11 +5,13 @@
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Make "this node selects a registered view" a structural fact core can see and validate (non-blank `viewId`, strict-JSON `props`), without core referencing any concrete view type, adapter, or registry.
 - Keep the existing primitive shape (`kind`/`attributes`/`children`/`slots`) unchanged for every node that doesn't opt into the view shape — zero behavior change for primitive-only trees.
 - Make "a view node is a self-contained leaf" a type-level fact (no `children`/`slots` fields exist on the view variant) rather than only a documented adapter convention.
 
 **Non-Goals:**
+
 - No change to `RendererPort`, ownership, lifecycle, or the `mountChild`/anchor mechanism — a view node's leaf-ness is unrelated to whether an adapter later mounts a managed child into one of its anchors.
 - No per-view props schema/validation (core still doesn't know what views exist or what shape their props should be beyond "strict JSON"). That would require core to reference adapter-owned registrations, which the standing neutrality invariant forbids.
 - No migration tooling — this is an internal, pre-1.0 type change; every in-repo consumer (adapters, fixtures, tests) is updated in this same change.
@@ -17,11 +19,22 @@
 ## Decisions
 
 **Discriminated union via a new `node` field, not reusing `kind`.** `ResolvedSlot` already uses `kind: "reference" | "content"` as a discriminant literal elsewhere in this file, but `TemplateNode`/`RenderNode`'s `kind` is a `string`-typed tag name, not a literal — widening it to `string | "view"` would not narrow (a `string` already accepts `"view"`), so discrimination needs a field the primitive shape doesn't already use for something else. `node: "view"` is optional/absent on the primitive variant (so existing primitive-only authoring is untouched) and a required literal on the view variant:
+
 ```ts
-interface RenderPrimitiveNode { kind: string; attributes: JsonObject; children: readonly RenderNode[]; slots: Readonly<Record<string, ResolvedSlot>>; }
-interface RenderViewNode { readonly node: "view"; readonly viewId: string; readonly props: JsonObject; }
+interface RenderPrimitiveNode {
+  kind: string;
+  attributes: JsonObject;
+  children: readonly RenderNode[];
+  slots: Readonly<Record<string, ResolvedSlot>>;
+}
+interface RenderViewNode {
+  readonly node: "view";
+  readonly viewId: string;
+  readonly props: JsonObject;
+}
 type RenderNode = RenderPrimitiveNode | RenderViewNode;
 ```
+
 (same shape for `TemplateNode`, with `attributes`/`props`/`children`/`slots` optional at authoring time, mirroring the existing template-authoring convention.)
 
 **View node has no `children`/`slots` at the type level.** Per the view-registry spec, a registered view is already a self-contained leaf by default; encoding that as "the field doesn't exist" (rather than "exists but is ignored") makes an author's mistake a compile error instead of silent adapter-side dropping.

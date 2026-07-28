@@ -22,19 +22,61 @@ function node(
   return { kind, attributes, children, slots: {} };
 }
 
+function viewNode(viewId: string, props: JsonObject = {}): RenderNode {
+  return { node: "view", viewId, props };
+}
+
 describe("vue renderer", () => {
-  it("renders a registered view with the node's attributes as props", () => {
+  it("renders a registered view with the node's props as props", () => {
     const badge: VueView = (props) =>
       h("span", {
         "data-badge": typeof props.label === "string" ? props.label : "",
       });
     const renderer = createVueRenderer({ views: { badge } });
-    const root = renderer.createRoot("id-view", node("badge", { label: "hi" }));
+    const root = renderer.createRoot(
+      "id-view",
+      viewNode("badge", { label: "hi" }),
+    );
 
     const container = renderer.elementForIdentity("id-view");
     expect(
       container?.querySelector("[data-badge]")?.getAttribute("data-badge"),
     ).toBe("hi");
+    renderer.removeRoot(root);
+  });
+
+  it("throws a clear error for an unregistered viewId", () => {
+    const badge: VueView = () => h("span");
+    const renderer = createVueRenderer({ views: { badge } });
+    expect(() =>
+      renderer.createRoot("id-view", viewNode("no-such-view")),
+    ).toThrow(/no view registered for viewId/);
+  });
+
+  it("a primitive node whose kind coincidentally matches a registry key still renders as a primitive", () => {
+    const badge: VueView = () => h("span", { "data-view": "true" });
+    const renderer = createVueRenderer({ views: { badge } });
+    const root = renderer.createRoot("id-view", node("badge", { label: "hi" }));
+    const container = renderer.elementForIdentity("id-view");
+    expect(container?.querySelector("badge")?.getAttribute("label")).toBe("hi");
+    expect(container?.querySelector("[data-view]")).toBeNull();
+    renderer.removeRoot(root);
+  });
+
+  it("renders correctly across a primitive<->view variant change on commit", () => {
+    const badge: VueView = (props) =>
+      h("span", {
+        "data-badge": typeof props.label === "string" ? props.label : "",
+      });
+    const renderer = createVueRenderer({ views: { badge } });
+    const root = renderer.createRoot("id-swap", node("span", { label: "a" }));
+    renderer.commit(root, "id-swap", viewNode("badge", { label: "b" }));
+    const container = renderer.elementForIdentity("id-swap");
+    expect(
+      container?.querySelector("[data-badge]")?.getAttribute("data-badge"),
+    ).toBe("b");
+    renderer.commit(root, "id-swap", node("em", { label: "c" }));
+    expect(container?.querySelector("em")?.getAttribute("label")).toBe("c");
     renderer.removeRoot(root);
   });
 
@@ -139,7 +181,7 @@ describe("vue renderer", () => {
 
     it("mounts a child projection into a registered anchor, isolated from the parent", () => {
       const renderer = createVueRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
 
       const childRoot = renderer.mountChild(
         parentRoot,
@@ -184,7 +226,7 @@ describe("vue renderer", () => {
 
     it("throws a clear error when the named anchor was never registered", () => {
       const renderer = createVueRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       expect(() =>
         renderer.mountChild(
           parentRoot,
@@ -198,7 +240,7 @@ describe("vue renderer", () => {
 
     it("removing the child root leaves the parent view intact", () => {
       const renderer = createVueRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       const childRoot = renderer.mountChild(
         parentRoot,
         "body",

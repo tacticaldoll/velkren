@@ -7,6 +7,7 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 import {
+  isViewNode,
   PROJECTION_IDENTITY_ATTRIBUTE,
   type AdapterRoot,
   type InteractionRegistration,
@@ -62,20 +63,20 @@ export const RegisterAnchorContext = createContext<RegisterAnchor | undefined>(
 );
 
 /**
- * A registered React view: a component that receives a node's neutral
- * `attributes` (a `JsonObject`) as its props. React and this view type live
+ * A registered React view: a component that receives a view node's neutral
+ * `props` (a `JsonObject`) as its props. React and this view type live
  * only in this package; `@velkren/core` never references them.
  */
 export type ReactView = FunctionComponent<JsonObject>;
 
-/** An adapter-local registry resolving a node `kind` to a native React view. */
+/** An adapter-local registry resolving a view node's `viewId` to a native React view. */
 export type ReactViewRegistry = Record<string, ReactView>;
 
 /** Optional configuration for the React renderer. */
 export interface ReactRendererOptions {
   /** The shared host under which each root's per-root container is mounted. */
   readonly container?: HTMLElement;
-  /** A registry resolving a node `kind` to a native React view. */
+  /** A registry resolving a view node's `viewId` to a native React view. */
   readonly views?: ReactViewRegistry;
 }
 
@@ -346,17 +347,25 @@ function renderNode(
   views: ReactViewRegistry,
   key?: string,
 ): ReactElement {
-  // Registry check first, for every node incl. the root: on a hit render the
-  // registered view as a self-contained leaf with the node's RAW attributes as
-  // props — no `translateAttribute`/`stringifyAttribute` translation and no
-  // children auto-projected into it. `registerAnchor` reaches the view via
+  // A view node is resolved by `viewId`, for every node incl. the root: the
+  // registered view renders as a self-contained leaf with the node's RAW
+  // `props` — no `translateAttribute`/`stringifyAttribute` translation, and
+  // there is nothing of the node's own to auto-project into it (a view node
+  // has no children/slots). `registerAnchor` reaches the view via
   // `RegisterAnchorContext`, not a prop, so this call site and `ReactView`'s
-  // prop type are both unchanged by that feature.
-  const view = views[node.kind];
-  if (view !== undefined) {
+  // prop type are both unchanged by that feature. A primitive node's `kind`
+  // never triggers this lookup, even if it coincidentally matches a
+  // registered `viewId`.
+  if (isViewNode(node)) {
+    const view = views[node.viewId];
+    if (view === undefined) {
+      throw new Error(
+        `Velkren: no view registered for viewId ${JSON.stringify(node.viewId)}`,
+      );
+    }
     return key === undefined
-      ? createElement(view, node.attributes)
-      : createElement(view, { key, ...node.attributes });
+      ? createElement(view, node.props)
+      : createElement(view, { key, ...node.props });
   }
   const props: Record<string, unknown> = {};
   if (key !== undefined) props.key = key;

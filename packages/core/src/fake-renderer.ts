@@ -5,13 +5,18 @@ import {
   type RendererPort,
 } from "./renderer-port.js";
 import type { JsonObject, JsonValue } from "./strict-json.js";
-import type { RenderNode } from "./template-class.js";
+import { isViewNode, type RenderNode } from "./template-class.js";
 
-/** An inspectable in-memory node produced by the fake renderer. */
+/** An inspectable in-memory node produced by the fake renderer. A view node
+ * is projected degenerately (`kind` set to its `viewId`, `attributes` set to
+ * its `props`, no children) since the fake renderer has no view-registry
+ * concept of its own; `isView` distinguishes it from a childless primitive
+ * node whose `kind` coincidentally equals that `viewId`. */
 export interface FakeRenderedNode {
   readonly kind: string;
   readonly attributes: Record<string, JsonValue>;
   readonly children: readonly FakeRenderedNode[];
+  readonly isView?: true;
 }
 
 /** An in-memory root the fake renderer projects and can repair. */
@@ -46,6 +51,13 @@ export function createFakeRenderer(): FakeRenderer {
   const registrations = new WeakMap<FakeRoot, Map<string, Set<Delivery>>>();
 
   const build = (node: RenderNode, identity?: string): FakeRenderedNode => {
+    if (isViewNode(node)) {
+      const attributes: Record<string, JsonValue> = { ...node.props };
+      if (identity !== undefined) {
+        attributes[PROJECTION_IDENTITY_ATTRIBUTE] = identity;
+      }
+      return { kind: node.viewId, attributes, children: [], isView: true };
+    }
     const attributes: Record<string, JsonValue> = { ...node.attributes };
     if (identity !== undefined) {
       attributes[PROJECTION_IDENTITY_ATTRIBUTE] = identity;

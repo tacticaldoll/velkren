@@ -30,6 +30,10 @@ function node(kind: string, attributes: JsonObject = {}): RenderNode {
   return { kind, attributes, children: [], slots: {} };
 }
 
+function viewNode(viewId: string, props: JsonObject = {}): RenderNode {
+  return { node: "view", viewId, props };
+}
+
 /**
  * Mount a single bound root through the full runtime so the interaction-binding
  * contract (not a raw registration) drives delivery, as the port intends.
@@ -486,30 +490,30 @@ describe("SolidJS renderer port", () => {
     return el;
   };
 
-  it("renders a registered view in place of the primitive with attributes as props", () => {
+  it("renders a registered view in place of the primitive with props as props", () => {
     const renderer = createSolidRenderer({ views: { badge } });
-    renderer.createRoot("root-1", node("badge", { label: "hi" }));
+    renderer.createRoot("root-1", viewNode("badge", { label: "hi" }));
     const content = renderer.container.firstElementChild
       ?.firstElementChild as HTMLElement;
     // The registered view rendered (a <span>), not a primitive <badge>, and it
-    // received the node's attributes as props.
+    // received the node's props as props.
     expect(content.tagName.toLowerCase()).toBe("span");
     expect(content.getAttribute("data-label")).toBe("hi");
     expect(content.textContent).toBe("hi");
   });
 
-  it("falls back to the primitive for an unregistered kind", () => {
+  it("throws a clear error for an unregistered viewId", () => {
     const renderer = createSolidRenderer({ views: { badge } });
-    renderer.createRoot("root-1", node("section", { role: "main" }));
-    const content = renderer.container.firstElementChild
-      ?.firstElementChild as HTMLElement;
-    expect(content.tagName.toLowerCase()).toBe("section");
-    expect(content.getAttribute("role")).toBe("main");
+    expect(() =>
+      renderer.createRoot("root-1", viewNode("no-such-view")),
+    ).toThrow(/no view registered for viewId/);
   });
 
-  it("renders the primitive path unchanged when no registry is configured", () => {
-    const renderer = createSolidRenderer();
-    // The same kind that would resolve to a view above is a plain host element.
+  it("a primitive node whose kind coincidentally matches a registry key still renders as a primitive", () => {
+    const renderer = createSolidRenderer({ views: { badge } });
+    // "badge" is a registered viewId above, but this is a primitive node
+    // (carrying `kind`, not `node: "view"`), so the registry is never
+    // consulted for it.
     renderer.createRoot("root-1", node("badge", { label: "hi" }));
     const content = renderer.container.firstElementChild
       ?.firstElementChild as HTMLElement;
@@ -517,21 +521,38 @@ describe("SolidJS renderer port", () => {
     expect(content.getAttribute("label")).toBe("hi");
   });
 
-  it("renders a registered view as a leaf, not projecting node children", () => {
+  it("renders the primitive path unchanged when no registry is configured", () => {
+    const renderer = createSolidRenderer();
+    renderer.createRoot("root-1", node("badge", { label: "hi" }));
+    const content = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    expect(content.tagName.toLowerCase()).toBe("badge");
+    expect(content.getAttribute("label")).toBe("hi");
+  });
+
+  it("renders a registered view as a leaf (a view node has no children of its own)", () => {
     const renderer = createSolidRenderer({ views: { badge } });
-    renderer.createRoot("root-1", {
-      kind: "badge",
-      attributes: { label: "solo" },
-      children: [node("em"), node("strong")],
-      slots: {},
-    });
+    renderer.createRoot("root-1", viewNode("badge", { label: "solo" }));
     const content = renderer.container.firstElementChild
       ?.firstElementChild as HTMLElement;
     expect(content.tagName.toLowerCase()).toBe("span");
-    // The node's Velkren-managed children are NOT projected into the view.
-    expect(content.querySelector("em")).toBeNull();
-    expect(content.querySelector("strong")).toBeNull();
     expect(content.children.length).toBe(0);
+  });
+
+  it("rebuilds rather than patches across a primitive<->view variant change on commit", async () => {
+    const renderer = createSolidRenderer({ views: { badge } });
+    const root = renderer.createRoot("root-1", node("span", { label: "a" }));
+    renderer.commit(root, "root-1", viewNode("badge", { label: "b" }));
+    await Promise.resolve();
+    const content = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    expect(content.tagName.toLowerCase()).toBe("span");
+    expect(content.getAttribute("data-label")).toBe("b");
+    renderer.commit(root, "root-1", node("em", { label: "c" }));
+    await Promise.resolve();
+    const back = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+    expect(back.tagName.toLowerCase()).toBe("em");
   });
 
   it("renders and updates a registered view at the root, delivering an interaction", async () => {
@@ -546,7 +567,11 @@ describe("SolidJS renderer port", () => {
     const bound = await mountBound({
       project: () => ({ editor: "one" }),
       views: { "ui.button": rootButton },
-      templateRoot: { kind: "ui.button", attributes: { label: "go" } },
+      templateRoot: {
+        node: "view",
+        viewId: "ui.button",
+        props: { label: "go" },
+      },
     });
     const container = bound.renderer.elementForIdentity(bound.root.identity);
     // The registered view renders at the ROOT (a <button>, not a <ui.button>).
@@ -554,12 +579,7 @@ describe("SolidJS renderer port", () => {
     expect(container?.firstElementChild?.getAttribute("data-label")).toBe("go");
 
     // It updates on a subsequent commit (the root render effect rebuilds it).
-    bound.commit({
-      kind: "ui.button",
-      attributes: { label: "stop" },
-      children: [],
-      slots: {},
-    });
+    bound.commit(viewNode("ui.button", { label: "stop" }));
     await Promise.resolve();
     expect(container?.firstElementChild?.getAttribute("data-label")).toBe(
       "stop",
@@ -594,14 +614,14 @@ describe("SolidJS renderer port", () => {
     const renderer = createSolidRenderer({ views: { reactive: reactiveView } });
     const root = renderer.createRoot(
       "root-1",
-      node("reactive", { label: "a" }),
+      viewNode("reactive", { label: "a" }),
     );
     expect(renders).toBe(1);
     expect(cleanups).toEqual([]);
 
     // A commit rebuilds the view: the previous scope's onCleanup runs first,
     // then the view re-renders with fresh props (per-commit prop refresh).
-    renderer.commit(root, "root-1", node("reactive", { label: "b" }));
+    renderer.commit(root, "root-1", viewNode("reactive", { label: "b" }));
     await Promise.resolve();
     expect(renders).toBe(2);
     expect(cleanups).toEqual(["a"]);
@@ -611,7 +631,7 @@ describe("SolidJS renderer port", () => {
     expect(cleanups).toEqual(["a", "b"]);
 
     // No further render occurs on a would-be update after disposal.
-    renderer.commit(root, "root-1", node("reactive", { label: "c" }));
+    renderer.commit(root, "root-1", viewNode("reactive", { label: "c" }));
     await Promise.resolve();
     expect(renders).toBe(2);
   });
@@ -630,7 +650,7 @@ describe("SolidJS renderer port", () => {
 
     it("mounts a child projection into a registered anchor, isolated from the parent", () => {
       const renderer = createSolidRenderer({ views: { dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
 
       const childRoot = renderer.mountChild(
         parentRoot,
@@ -672,7 +692,7 @@ describe("SolidJS renderer port", () => {
 
     it("throws a clear error when the named anchor was never registered", () => {
       const renderer = createSolidRenderer({ views: { dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       expect(() =>
         renderer.mountChild(
           parentRoot,
@@ -685,7 +705,7 @@ describe("SolidJS renderer port", () => {
 
     it("removing the child root leaves the parent view intact", () => {
       const renderer = createSolidRenderer({ views: { dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       const childRoot = renderer.mountChild(
         parentRoot,
         "body",
@@ -700,7 +720,7 @@ describe("SolidJS renderer port", () => {
 
     it("treats a stale anchor (the view stopped rendering it) as unregistered", async () => {
       const renderer = createSolidRenderer({ views: { dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       // A later commit swaps the view out for a plain primitive with no
       // anchor -- the previously-registered "body" element is now detached
       // from the root's own container, even though the Map entry lingers.

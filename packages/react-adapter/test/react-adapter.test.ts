@@ -35,6 +35,10 @@ function node(kind: string, attributes: JsonObject = {}): RenderNode {
   return { kind, attributes, children: [], slots: {} };
 }
 
+function viewNode(viewId: string, props: JsonObject = {}): RenderNode {
+  return { node: "view", viewId, props };
+}
+
 /**
  * Mount a single bound root through the full runtime so the interaction-binding
  * contract (not a raw registration) drives delivery, as the port intends.
@@ -432,21 +436,37 @@ describe("React renderer port", () => {
 
   it("renders a registered view in place of the primitive, consuming props", () => {
     const renderer = createReactRenderer({ views: { badge: Badge } });
-    renderer.createRoot("root-1", node("badge", { label: "hi" }));
+    renderer.createRoot("root-1", viewNode("badge", { label: "hi" }));
     const content = renderer.elementForIdentity("root-1")?.firstElementChild;
     // The registered view rendered (a <span>), not a primitive <badge>, and it
-    // received the node's attributes as props (label read into title + text).
+    // received the node's props as props (label read into title + text).
     expect(content?.tagName.toLowerCase()).toBe("span");
     expect(content?.getAttribute("title")).toBe("hi");
     expect(content?.textContent).toBe("hi");
   });
 
-  it("falls back to the primitive for an unregistered kind", () => {
+  it("throws a clear error for an unregistered viewId", () => {
     const renderer = createReactRenderer({ views: { badge: Badge } });
-    renderer.createRoot("root-1", node("section", { role: "main" }));
+    expect(() =>
+      renderer.createRoot("root-1", viewNode("no-such-view")),
+    ).toThrow(/no view registered for viewId/);
+    // The throw happens inside React's render phase (unlike the anchor-miss
+    // error below, which is a plain function call outside any render), so
+    // React's own dev-mode diagnostic about the render error is expected
+    // ancillary noise here, not a real console-error regression.
+    consoleErrors.length = 0;
+  });
+
+  it("a primitive node whose kind coincidentally matches a registry key still renders as a primitive", () => {
+    // "ui-badge" is a registered viewId here, but this node is a primitive
+    // (carrying `kind`, not `node: "view"`), so the registry is never
+    // consulted for it. A hyphenated tag also avoids React's
+    // unrecognized-tag warning (a hard failure in this suite).
+    const renderer = createReactRenderer({ views: { "ui-badge": Badge } });
+    renderer.createRoot("root-1", node("ui-badge", { label: "hi" }));
     const content = renderer.elementForIdentity("root-1")?.firstElementChild;
-    expect(content?.tagName.toLowerCase()).toBe("section");
-    expect(content?.getAttribute("role")).toBe("main");
+    expect(content?.tagName.toLowerCase()).toBe("ui-badge");
+    expect(content?.getAttribute("label")).toBe("hi");
   });
 
   it("renders the primitive path unchanged when no registry is configured", () => {
@@ -461,7 +481,7 @@ describe("React renderer port", () => {
     expect(content?.textContent).toBe("");
   });
 
-  it("renders a registered view as a leaf, not projecting node children", () => {
+  it("renders a registered view as a leaf (a view node has no children of its own)", () => {
     const Leaf: ReactView = (props) =>
       createElement(
         "span",
@@ -469,19 +489,23 @@ describe("React renderer port", () => {
         typeof props.label === "string" ? props.label : "",
       );
     const renderer = createReactRenderer({ views: { leaf: Leaf } });
-    renderer.createRoot("root-1", {
-      kind: "leaf",
-      attributes: { label: "solo" },
-      children: [node("em"), node("strong")],
-      slots: {},
-    });
+    renderer.createRoot("root-1", viewNode("leaf", { label: "solo" }));
     const content = renderer.elementForIdentity("root-1")?.firstElementChild;
     expect(content?.tagName.toLowerCase()).toBe("span");
     expect(content?.textContent).toBe("solo");
-    // The node's Velkren-managed children are NOT projected into the view.
-    expect(content?.querySelector("em")).toBeNull();
-    expect(content?.querySelector("strong")).toBeNull();
     expect(content?.children.length).toBe(0);
+  });
+
+  it("rebuilds rather than patches across a primitive<->view variant change on commit", () => {
+    const renderer = createReactRenderer({ views: { badge: Badge } });
+    const root = renderer.createRoot("root-1", node("span", { label: "a" }));
+    renderer.commit(root, "root-1", viewNode("badge", { label: "b" }));
+    const content = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(content?.tagName.toLowerCase()).toBe("span");
+    expect(content?.getAttribute("title")).toBe("b");
+    renderer.commit(root, "root-1", node("ui-em", { label: "c" }));
+    const back = renderer.elementForIdentity("root-1")?.firstElementChild;
+    expect(back?.tagName.toLowerCase()).toBe("ui-em");
   });
 
   it("renders and updates a registered view at the root, delivering an interaction", async () => {
@@ -494,7 +518,11 @@ describe("React renderer port", () => {
     const bound = await mountBound({
       project: () => ({ editor: "one" }),
       views: { "ui.button": RootButton },
-      templateRoot: { kind: "ui.button", attributes: { label: "go" } },
+      templateRoot: {
+        node: "view",
+        viewId: "ui.button",
+        props: { label: "go" },
+      },
     });
     const container = bound.renderer.elementForIdentity(bound.root.identity);
     // The registered view renders at the ROOT (a <button>, not a <ui.button>).
@@ -502,12 +530,7 @@ describe("React renderer port", () => {
     expect(container?.firstElementChild?.getAttribute("title")).toBe("go");
 
     // It updates on a subsequent commit (fresh props via React re-render).
-    bound.commit({
-      kind: "ui.button",
-      attributes: { label: "stop" },
-      children: [],
-      slots: {},
-    });
+    bound.commit(viewNode("ui.button", { label: "stop" }));
     expect(container?.firstElementChild?.getAttribute("title")).toBe("stop");
     // The identity anchor stays on the container across the commit.
     expect(container?.getAttribute(PROJECTION_IDENTITY_ATTRIBUTE)).toBe(
@@ -542,7 +565,7 @@ describe("React renderer port", () => {
 
     it("mounts a child projection into a registered anchor, isolated from the parent", () => {
       const renderer = createReactRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
 
       const childRoot = renderer.mountChild(
         parentRoot,
@@ -584,7 +607,7 @@ describe("React renderer port", () => {
 
     it("throws a clear error when the named anchor was never registered", () => {
       const renderer = createReactRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       expect(() =>
         renderer.mountChild(
           parentRoot,
@@ -597,7 +620,7 @@ describe("React renderer port", () => {
 
     it("removing the child root leaves the parent view intact", () => {
       const renderer = createReactRenderer({ views: { dialog: Dialog } });
-      const parentRoot = renderer.createRoot("parent-1", node("dialog"));
+      const parentRoot = renderer.createRoot("parent-1", viewNode("dialog"));
       const childRoot = renderer.mountChild(
         parentRoot,
         "body",

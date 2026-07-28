@@ -555,6 +555,32 @@ describe("SolidJS renderer port", () => {
     expect(back.tagName.toLowerCase()).toBe("em");
   });
 
+  it("reconciles a non-root child that alternates primitive<->view across commits", async () => {
+    const renderer = createSolidRenderer({ views: { badge } });
+    const wrap = (child: RenderNode): RenderNode => ({
+      kind: "div",
+      attributes: {},
+      children: [child],
+      slots: {},
+    });
+    const root = renderer.createRoot(
+      "root-1",
+      wrap(node("span", { label: "a" })),
+    );
+    const wrapper = renderer.container.firstElementChild
+      ?.firstElementChild as HTMLElement;
+
+    renderer.commit(root, "root-1", wrap(viewNode("badge", { label: "b" })));
+    await Promise.resolve();
+    expect(wrapper.firstElementChild?.tagName.toLowerCase()).toBe("span");
+    expect(wrapper.firstElementChild?.getAttribute("data-label")).toBe("b");
+
+    renderer.commit(root, "root-1", wrap(node("em", { label: "c" })));
+    await Promise.resolve();
+    expect(wrapper.firstElementChild?.tagName.toLowerCase()).toBe("em");
+    expect(wrapper.firstElementChild?.getAttribute("label")).toBe("c");
+  });
+
   it("renders and updates a registered view at the root, delivering an interaction", async () => {
     const rootButton: SolidView = (props) => {
       const el = document.createElement("button");

@@ -5,11 +5,13 @@
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Let a human open a URL and see the same composition running, side by side, on all three adapters — clicking each editor's button and watching only that editor's activity appear in a log, without reading any test code.
-- Reuse `createEditorApp` exactly as-is; the demo is a *consumer* of the existing fixture, not a new fixture or a new public API.
+- Reuse `createEditorApp` exactly as-is; the demo is a _consumer_ of the existing fixture, not a new fixture or a new public API.
 - Keep the new tooling (a bundler) scoped to one throwaway-simple package, not adopted repo-wide.
 
 **Non-Goals:**
+
 - No new demo scenarios beyond the two-editor composition (native nested views, keyed lists, membrane embedding are real, already-shipped features, but adding them to the demo is a separate future iteration, not bundled into this one).
 - No design system, styling framework, or component library — inline `<style>` and plain DOM only, matching the project's own "fixtures, not a public UI library" posture.
 - No custom domain, no analytics, no multi-page routing.
@@ -20,7 +22,7 @@
 
 **Vite, not a hand-rolled bundler config or a CDN-script page.** Vite needs near-zero configuration for "bundle one TS entry point importing a few ESM workspace packages and their peer deps (`solid-js`, `react`, `react-dom`, `vue`)," handles the three frameworks' differing module shapes without per-framework plugins (no JSX is used — every adapter's own source already calls `createElement`/`h` directly, so the demo's own code can do the same), and is the de facto standard choice for exactly this "bundle a static page" task. It is scoped as `packages/demo`'s own devDependency, not hoisted to the root `package.json`, so no other package's build gains a new tool.
 
-**`vite.config.ts` sets `base: "./"` (relative asset paths), not the default `"/"`.** An adversarial review caught that this repo (`tacticaldoll/velkren`, no `CNAME`) deploys as a GitHub Pages *project* site at `/velkren/`, not the domain root; Vite's default root-absolute asset paths would 404 there while looking completely correct in a local `vite build`/`vite preview` (which serves from the filesystem root), so the bug would only surface on the real deployed page — exactly the failure mode this change exists to avoid. A relative base fixes this for any subpath, a future custom domain, and local preview alike, with no environment-conditional configuration needed.
+**`vite.config.ts` sets `base: "./"` (relative asset paths), not the default `"/"`.** An adversarial review caught that this repo (`tacticaldoll/velkren`, no `CNAME`) deploys as a GitHub Pages _project_ site at `/velkren/`, not the domain root; Vite's default root-absolute asset paths would 404 there while looking completely correct in a local `vite build`/`vite preview` (which serves from the filesystem root), so the bug would only surface on the real deployed page — exactly the failure mode this change exists to avoid. A relative base fixes this for any subpath, a future custom domain, and local preview alike, with no environment-conditional configuration needed.
 
 **Every `@velkren/*` dependency in `packages/demo/package.json` uses the same bare exact-version string every other package already uses (`"0.1.0"`), not a `workspace:*` protocol specifier.** npm workspaces (this repo's package manager) does not understand `workspace:` — that syntax is pnpm/Yarn-specific and would break `npm install` if used here; this was corrected after an adversarial review flagged it during propose.
 

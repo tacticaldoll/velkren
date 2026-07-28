@@ -844,4 +844,114 @@ describe("React renderer port", () => {
       );
     });
   });
+
+  describe("single-slot anchor", () => {
+    function nodeWithSlots(
+      kind: string,
+      slotNames: readonly string[],
+      attributes: JsonObject = {},
+    ): RenderNode {
+      const slots: Record<string, { kind: "content"; content: null }> = {};
+      for (const name of slotNames) {
+        slots[name] = { kind: "content", content: null };
+      }
+      return { kind, attributes, children: [], slots };
+    }
+
+    it("a primitive node with exactly one resolved slot becomes its own anchor", () => {
+      const renderer = createReactRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["body"]),
+      );
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const div = renderer.elementForIdentity("parent-1")?.querySelector("div");
+      expect(div?.querySelector("section")?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+    });
+
+    it("a node with zero or multiple resolved slots registers no anchor", () => {
+      const renderer = createReactRenderer();
+      const zeroSlot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", []),
+      );
+      expect(() =>
+        renderer.mountChild(zeroSlot, "body", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+
+      const multiSlot = renderer.createRoot(
+        "parent-2",
+        nodeWithSlots("div", ["a", "b"]),
+      );
+      expect(() =>
+        renderer.mountChild(multiSlot, "a", "child-2", node("section")),
+      ).toThrow(/no anchor named/);
+      expect(() =>
+        renderer.mountChild(multiSlot, "b", "child-3", node("section")),
+      ).toThrow(/no anchor named/);
+    });
+
+    it("a controlled input with a sole resolved slot keeps both the controlled value and the anchor", () => {
+      const renderer = createReactRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("input", ["body"], { value: "hello" }),
+      );
+
+      const input = renderer
+        .elementForIdentity("parent-1")
+        ?.querySelector("input") as HTMLInputElement;
+      expect(input.value).toBe("hello");
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section"),
+      );
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+      expect(input.querySelector("section")).not.toBeNull();
+    });
+
+    it("a renamed sole slot on a re-render un-registers the old name", () => {
+      const renderer = createReactRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      // Same position, no key change -- React reuses the div, but still
+      // re-invokes the ref (a fresh closure every render).
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", ["b"]));
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+      expect(() =>
+        renderer.mountChild(parentRoot, "b", "child-2", node("section")),
+      ).not.toThrow();
+    });
+
+    it("a removed sole slot on a re-render un-registers the anchor", () => {
+      const renderer = createReactRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", []));
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+    });
+  });
 });

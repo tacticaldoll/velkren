@@ -408,7 +408,7 @@ function VelkrenTree({ node, views, anchors }: VelkrenTreeProps): ReactElement {
   return createElement(
     RegisterAnchorContext.Provider,
     { value: registerAnchor },
-    renderNode(node, views),
+    renderNode(node, views, anchors),
   );
 }
 
@@ -422,6 +422,7 @@ const CONTROLLED_VALUE_TAGS = new Set(["input", "textarea", "select"]);
 function renderNode(
   node: RenderNode,
   views: ReactViewRegistry,
+  anchors: Map<string, HTMLElement>,
   key?: string,
 ): ReactElement {
   // A view node is resolved by `viewId`, for every node incl. the root: the
@@ -453,16 +454,49 @@ function renderNode(
     if (name === "value" && controlledValue !== undefined) continue;
     props[translateAttribute(name)] = stringifyAttribute(value);
   }
-  if (controlledValue !== undefined) {
+  // A primitive node whose resolved `.slots` has exactly one entry becomes
+  // its own `mountChild` anchor, registered under that slot's name in the
+  // same `anchors` map a view's `registerAnchor` writes to -- no separate
+  // placeholder DOM, no new coordinator. A node with zero or two-or-more
+  // resolved slots registers nothing.
+  const slotNames = Object.keys(node.slots);
+  const soleSlotName = slotNames.length === 1 ? slotNames[0] : undefined;
+  if (controlledValue !== undefined || soleSlotName !== undefined) {
     // A fresh closure every render means React invokes this ref on every
     // commit (old ref with null, new ref with the node, for an unchanged
     // underlying DOM element) — synchronously, inside the same flushSync
     // this file already wraps every render in. React never sees `value` as
     // a prop on this node, so there is nothing for its controlled-input
     // machinery to install or fight back with.
-    props.ref = (element: HTMLInputElement | null): void => {
-      if (element === null) return;
-      applyValueProperty(element, stringifyAttribute(controlledValue));
+    //
+    // The same re-invocation is relied on to keep `anchors` correct across a
+    // slot rename or removal: `attachedElement` closes over the element this
+    // specific closure attached to, so when React detaches this ref (calling
+    // it with `null`, before attaching the next render's ref), the old slot
+    // name is removed -- but only if it still points at this same element,
+    // so a name legitimately reclaimed elsewhere in the interim is untouched.
+    let attachedElement: HTMLElement | undefined;
+    props.ref = (element: HTMLElement | null): void => {
+      if (element === null) {
+        if (
+          soleSlotName !== undefined &&
+          attachedElement !== undefined &&
+          anchors.get(soleSlotName) === attachedElement
+        ) {
+          anchors.delete(soleSlotName);
+        }
+        return;
+      }
+      attachedElement = element;
+      if (controlledValue !== undefined) {
+        applyValueProperty(
+          element as HTMLInputElement,
+          stringifyAttribute(controlledValue),
+        );
+      }
+      if (soleSlotName !== undefined) {
+        anchors.set(soleSlotName, element);
+      }
     };
   }
   // When every child carries a key, each child's own `key` becomes its React
@@ -476,7 +510,12 @@ function renderNode(
     node.children.length > 0 &&
     node.children.every((child) => child.key !== undefined);
   const children = node.children.map((child, index) =>
-    renderNode(child, views, isKeyedChildren ? child.key! : String(index)),
+    renderNode(
+      child,
+      views,
+      anchors,
+      isKeyedChildren ? child.key! : String(index),
+    ),
   );
   return createElement(node.kind, props, ...children);
 }

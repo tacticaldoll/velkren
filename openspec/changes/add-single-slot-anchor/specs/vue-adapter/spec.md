@@ -2,7 +2,7 @@
 
 ### Requirement: Vue adapter implements child mounting
 
-The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. The adapter SHALL expose a `registerAnchor(name, element)` function to a registered view through Vue's `provide`/`inject` (`REGISTER_ANCHOR_KEY`), not through the view's props, so that `VueView`'s prop type remains exactly `FunctionalComponent<JsonObject>`, unchanged from before this requirement. Calling `registerAnchor` records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element. A primitive node whose resolved `RenderNode.slots` has exactly one entry SHALL also register its own rendered element as an anchor under that slot's name, via a `ref` prop on that element; a primitive node with zero or two-or-more resolved slots registers no anchor. When a node's sole resolved slot's name changes, or its slot is removed entirely, between one commit and the next while the same DOM element persists (no rebuild), the adapter MUST remove the old name's `anchors` entry so a later `mountChild` call cannot resolve a name that no longer reflects the node's current slot.
+The adapter SHALL implement the `RendererPort` child-mounting operation by creating a new per-root container anchored under the DOM element registered for the given anchor name, reusing the same container/identity/interaction-listener setup as a top-level root. The adapter SHALL expose a `registerAnchor(name, element)` function to a registered view through Vue's `provide`/`inject` (`REGISTER_ANCHOR_KEY`), not through the view's props, so that `VueView`'s prop type remains exactly `FunctionalComponent<JsonObject>`, unchanged from before this requirement. Calling `registerAnchor` records the element against the root currently being rendered, so a later child-mounting call naming that anchor resolves to the registered element. A primitive node whose resolved `RenderNode.slots` has exactly one entry SHALL also register its own rendered element as an anchor under that slot's name, via `onVnodeMounted`/`onVnodeUpdated` vnode lifecycle hooks on that element (not a `ref`, since Vue does not reliably re-invoke a changed `ref` callback for an element reused across a patch); a primitive node with zero or two-or-more resolved slots registers no anchor. When a node's sole resolved slot's name changes, or its slot is removed entirely, between one commit and the next while the same DOM element persists (no rebuild), the adapter MUST remove the old name's `anchors` entry so a later `mountChild` call cannot resolve a name that no longer reflects the node's current slot.
 
 When a commit causes the registered element for an anchor name to be replaced (for example, because Vue's own patch decides to remount the host node backing that anchor), the adapter MUST reconcile any child currently mounted at that anchor rather than silently discarding it: if the anchor name is still exposed after the commit, the child's own container MUST be moved under the newly-registered element, unchanged and undisposed; if the anchor name is no longer exposed at all, the child MUST be released through the same disposal path as an explicit `removeRoot` call, and the loss MUST be reported through the adapter's failure-reporting convention rather than left silent.
 
@@ -36,8 +36,15 @@ When a commit causes the registered element for an anchor name to be replaced (f
 - **WHEN** a primitive node is rendered with either no resolved slots or two-or-more resolved slots
 - **THEN** the adapter registers no anchor for that node, and its rendering is otherwise unaffected by this requirement
 
-#### Scenario: A renamed or removed sole slot on a re-render un-registers the old name
+#### Scenario: A renamed sole slot on a re-render un-registers the old name
 
 - **WHEN** a primitive node's sole resolved slot is named `"a"` on one render and, on a later re-render
-  of the same element (no key change), is either named `"b"` instead or removed entirely
+  of the same element (no key change), is named `"b"` instead
+- **THEN** a subsequent `mountChild` call naming `"a"` throws (no anchor registered under that name),
+  while a `mountChild` call naming `"b"` succeeds, targeting the same element
+
+#### Scenario: A removed sole slot on a re-render un-registers the anchor
+
+- **WHEN** a primitive node has a sole resolved slot named `"a"` on one render and, on a later re-render
+  of the same element (no key change), has no resolved slots at all
 - **THEN** a subsequent `mountChild` call naming `"a"` throws (no anchor registered under that name)

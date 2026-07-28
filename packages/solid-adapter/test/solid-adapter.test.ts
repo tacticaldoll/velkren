@@ -1058,4 +1058,110 @@ describe("SolidJS renderer port", () => {
       ).toThrow(/no anchor named/);
     });
   });
+
+  describe("single-slot anchor", () => {
+    function nodeWithSlots(
+      kind: string,
+      slotNames: readonly string[],
+      attributes: JsonObject = {},
+    ): RenderNode {
+      const slots: Record<string, { kind: "content"; content: null }> = {};
+      for (const name of slotNames)
+        slots[name] = { kind: "content", content: null };
+      return { kind, attributes, children: [], slots };
+    }
+
+    it("a primitive node with exactly one resolved slot becomes its own anchor", () => {
+      const renderer = createSolidRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["body"]),
+      );
+
+      const childRoot = renderer.mountChild(
+        parentRoot,
+        "body",
+        "child-1",
+        node("section", { role: "child" }),
+      );
+
+      const div = renderer.container.querySelector("div");
+      expect(div?.querySelector("section")?.getAttribute("role")).toBe("child");
+      expect(renderer.readIdentity(childRoot)).toBe("child-1");
+    });
+
+    it("a node with zero or multiple resolved slots registers no anchor", () => {
+      const renderer = createSolidRenderer();
+      const zeroSlot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", []),
+      );
+      expect(() =>
+        renderer.mountChild(zeroSlot, "body", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+
+      const multiSlot = renderer.createRoot(
+        "parent-2",
+        nodeWithSlots("div", ["a", "b"]),
+      );
+      expect(() =>
+        renderer.mountChild(multiSlot, "a", "child-2", node("section")),
+      ).toThrow(/no anchor named/);
+      expect(() =>
+        renderer.mountChild(multiSlot, "b", "child-3", node("section")),
+      ).toThrow(/no anchor named/);
+    });
+
+    it("a node that gains its sole slot on a patch-in-place commit becomes mountable", async () => {
+      const renderer = createSolidRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", []),
+      );
+      expect(() =>
+        renderer.mountChild(parentRoot, "body", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+
+      // Same `kind` ("div") -- patched in place, not rebuilt.
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", ["body"]));
+      await Promise.resolve();
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "body", "child-1", node("section")),
+      ).not.toThrow();
+    });
+
+    it("a renamed sole slot on a patch-in-place commit un-registers the old name", async () => {
+      const renderer = createSolidRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", ["b"]));
+      await Promise.resolve();
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+      expect(() =>
+        renderer.mountChild(parentRoot, "b", "child-2", node("section")),
+      ).not.toThrow();
+    });
+
+    it("a removed sole slot on a patch-in-place commit un-registers the anchor", async () => {
+      const renderer = createSolidRenderer();
+      const parentRoot = renderer.createRoot(
+        "parent-1",
+        nodeWithSlots("div", ["a"]),
+      );
+
+      renderer.commit(parentRoot, "parent-1", nodeWithSlots("div", []));
+      await Promise.resolve();
+
+      expect(() =>
+        renderer.mountChild(parentRoot, "a", "child-1", node("section")),
+      ).toThrow(/no anchor named/);
+    });
+  });
 });

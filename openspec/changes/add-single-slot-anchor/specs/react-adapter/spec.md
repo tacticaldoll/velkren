@@ -41,8 +41,15 @@ When a commit causes the registered element for an anchor name to be replaced (f
 - **WHEN** a primitive node is rendered with either no resolved slots or two-or-more resolved slots
 - **THEN** the adapter registers no anchor for that node, and its rendering is otherwise unaffected by this requirement
 
-#### Scenario: A renamed or removed sole slot on a re-render un-registers the old name
+#### Scenario: A renamed sole slot on a re-render un-registers the old name
 
 - **WHEN** a primitive node's sole resolved slot is named `"a"` on one render and, on a later re-render
-  of the same element (no key change), is either named `"b"` instead or removed entirely
+  of the same element (no key change), is named `"b"` instead
+- **THEN** a subsequent `mountChild` call naming `"a"` throws (no anchor registered under that name),
+  while a `mountChild` call naming `"b"` succeeds, targeting the same element
+
+#### Scenario: A removed sole slot on a re-render un-registers the anchor
+
+- **WHEN** a primitive node has a sole resolved slot named `"a"` on one render and, on a later re-render
+  of the same element (no key change), has no resolved slots at all
 - **THEN** a subsequent `mountChild` call naming `"a"` throws (no anchor registered under that name)
